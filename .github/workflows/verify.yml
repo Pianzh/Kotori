@@ -127,13 +127,10 @@ jobs:
           cache-on-failure: true
 
       - name: 编译 + lint(未使用的导入/变量、类型错误、clippy 风格一律不许过)
-        # ⚠ `-A dead_code` 是**刻意**留的一个口子:Windows 上有一整块 unix-only
-        #   (`scale::args` 的阶梯算术、wineserver 收尾、`process::is_plumbing`……)
-        #   在那边没有任何调用者,逐条 `#[cfg(unix)]` 是另一件事(PLATFORMS.md
-        #   待办 12)。这一条 lint 挡住的只是那些噪音,而**真正会被漏掉的东西**
-        #   ——`#[cfg(windows)]` 里写错的类型、没人用的导入、clippy 的风格规则
-        #   ——照样全部拦下。
-        run: cargo clippy --all-targets --locked -- -D warnings -A dead_code
+        # ⚠ Windows 侧是**唯一**能看见 `#[cfg(windows)]` 那些分支的地方:Linux 上它们
+        #   根本不参与编译。这里**不再**留 `-A dead_code` 的口子(2026-09-27 起):
+        #   只给 unix 用的东西都如实 `#[cfg(unix)]` 掉了,那边的"没人用"现在是真信号。
+        run: cargo clippy --all-targets --locked -- -D warnings
 
       - name: 测试
         # 单元测试里有一大堆平台相关的代码(进程表、exe 路径、kill_tree、空设备名、
