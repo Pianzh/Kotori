@@ -1,6 +1,7 @@
 use super::*;
 
 #[test]
+#[cfg(unix)]
 fn sharpness_is_clamped_and_rebuilt() {
     let algo = ScaleAlgorithm::Fsr { sharpness: 99 };
     assert_eq!(algo.sharpness(), Some(MAX_SHARPNESS));

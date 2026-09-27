@@ -187,6 +187,7 @@ fn comm_truncation_counts_bytes_not_characters() {
 }
 
 #[test]
+#[cfg(unix)]
 fn plumbing_is_told_apart_from_a_game() {
     for name in [
         "gamescope",
@@ -221,6 +222,7 @@ fn does_not_match_unrelated_processes() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn waiting_for_a_missing_process_returns_immediately() {
     let started = std::time::Instant::now();
     wait_until_gone("kotori-definitely-not-running").await;

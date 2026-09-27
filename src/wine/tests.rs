@@ -75,6 +75,7 @@ fn scratch(tag: &str) -> PathBuf {
 }
 
 /// A fake `wineserver` that writes down what it was asked to do.
+#[cfg(unix)]
 fn recording_wineserver(dir: &Path) -> PathBuf {
     let script = dir.join("wineserver");
     let log = dir.join("call.txt");

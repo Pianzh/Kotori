@@ -99,6 +99,7 @@ esac
     /// A `secret-tool` that exists but has no backend behind it — exactly
     /// what a session that never started a Secret Service provider looks
     /// like (the binary is installed, the D-Bus name answer is not).
+    #[cfg(unix)]
     pub(crate) fn broken(tag: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "kotori-secrets-broken-{tag}-{}-{}",

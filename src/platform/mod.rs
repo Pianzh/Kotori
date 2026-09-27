@@ -69,6 +69,7 @@ pub struct Check {
 
 impl Check {
     /// 一行"可以了"的检查(必需项)。
+    #[cfg(unix)]
     pub(super) fn ready(id: &'static str, title: &str, detail: String, impact: &str) -> Self {
         Self::ready_at(id, title, Level::Required, detail, impact)
     }
@@ -122,6 +123,7 @@ impl Check {
     }
 
     /// 一行"没有它"的检查(必需项)。
+    #[cfg(unix)]
     pub(super) fn missing(id: &'static str, title: &str, impact: &str, install: String) -> Self {
         Self::missing_at(id, title, Level::Required, impact, install)
     }

@@ -100,6 +100,7 @@ const WINESERVER_KILL_TIMEOUT: Duration = Duration::from_secs(2);
 /// game is running, `wineserver -k` would be killing a live game's server.
 /// Failures are logged and swallowed: a teardown that can fail is a teardown that
 /// leaves behind the mess it was called to remove.
+#[cfg(unix)]
 pub async fn close_prefix(prefix: &Path) {
     close_prefix_with(&wineserver_binary(), prefix).await;
 }

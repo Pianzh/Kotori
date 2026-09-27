@@ -186,6 +186,7 @@ mod platform {
 ///
 /// portal 回来的是 URI,不是路径:非 ASCII(中文游戏目录!)在 URI 里是 UTF-8 的
 /// `%XX`,不还原就会拿到一串乱码目录名。
+#[cfg(unix)]
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
     let rest = uri.strip_prefix("file://")?;
     // `file:///path`(主机名是空的)与 `file://localhost/path` 都要吃下:
@@ -195,6 +196,7 @@ fn uri_to_path(uri: &str) -> Option<PathBuf> {
 }
 
 /// `%XX` 还原成字节,再按 UTF-8 解(URI 里的非 ASCII 就是 UTF-8 的百分号编码)。
+#[cfg(unix)]
 fn percent_decode(encoded: &str) -> Option<String> {
     let bytes = encoded.as_bytes();
     let mut out = Vec::with_capacity(bytes.len());
@@ -217,6 +219,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(unix)]
     fn a_plain_file_uri_becomes_the_path_behind_it() {
         assert_eq!(
             uri_to_path("file:///games/demo/game.exe"),
@@ -225,6 +228,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_localhost_host_is_not_part_of_the_path() {
         assert_eq!(
             uri_to_path("file://localhost/games/demo"),
@@ -234,6 +238,7 @@ mod tests {
 
     /// 中文目录名在 URI 里是 UTF-8 的百分号编码 —— 不还原就选完变成乱码。
     #[test]
+    #[cfg(unix)]
     fn non_ascii_names_come_back_readable() {
         let uri = "file:///games/%E5%B5%8C%E5%85%A5%E7%9A%84%E5%AD%A6%E5%9B%AD/save";
         assert_eq!(
@@ -243,6 +248,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn anything_that_is_not_a_local_file_is_refused() {
         assert_eq!(uri_to_path("https://example.com/x"), None);
         assert_eq!(uri_to_path("file:///bad%2"), None);

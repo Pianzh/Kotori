@@ -15,6 +15,7 @@ pub mod kde;
 /// The window control below is Plasma-specific on purpose. On niri a window's size
 /// is the layout's business (ADR-004), so "scale the game window" has nothing to
 /// act on there, and the feature says so instead of pretending.
+#[cfg(unix)]
 pub fn is_kde() -> bool {
     std::env::var("XDG_CURRENT_DESKTOP")
         .map(|desktop| desktop.to_ascii_lowercase().contains("kde"))

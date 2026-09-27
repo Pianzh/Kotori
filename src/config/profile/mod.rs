@@ -120,6 +120,7 @@ impl ScaleAlgorithm {
     }
 
     /// Sharpness for the algorithms that support it (clamped to 0..=MAX_SHARPNESS).
+    #[cfg(unix)]
     pub fn sharpness(&self) -> Option<u32> {
         match self {
             Self::Fsr { sharpness } | Self::Nis { sharpness } => {
@@ -180,6 +181,7 @@ impl ScaleProfile {
     /// `-F`/`-S` —— 用户既然说了"我说了算",kotori 就不该在游戏跑起来之后再去动它。
     /// 所以 `apply_action` 会跳过这类会话,`live_settings` 也不回报状态(档案里那个
     /// 算法根本没发给 gamescope,拿它冒充"现在"是撒谎)。
+    #[cfg(unix)]
     pub fn free_form(&self) -> bool {
         !self.gamescope_args.is_empty()
     }
@@ -236,6 +238,7 @@ impl ScaleProfile {
     /// Opening at the screen's size **is** what "maximised" means here, and it is all
     /// `-W/-H` do: they are the *initial* size, and the compositor may resize from
     /// there. Nothing pins the window — that would be `-f`, i.e. `force_fullscreen`.
+    #[cfg(unix)]
     pub fn output_size_for(&self, screen: (u32, u32)) -> (u32, u32) {
         self.explicit_output_size().unwrap_or(screen)
     }

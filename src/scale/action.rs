@@ -40,10 +40,12 @@ pub enum ScaleAction {
 /// above that the steps get bigger because the point is "as large as the screen
 /// allows", not precision. Sizes are clamped to the screen by the compositor
 /// anyway, so the top of the ladder is a ceiling rather than a promise.
+#[cfg(unix)]
 pub const SCALE_LADDER: [f32; 7] = [1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0];
 
 /// The ladder position closest to `ratio`, which is where a session starts (from
 /// its profile) and what a step moves away from.
+#[cfg(unix)]
 pub fn ladder_index_for(ratio: f32) -> usize {
     SCALE_LADDER
         .iter()
@@ -59,6 +61,7 @@ pub fn ladder_index_for(ratio: f32) -> usize {
 }
 
 /// One step along the ladder, staying on it.
+#[cfg(unix)]
 pub fn ladder_step(index: usize, up: bool) -> usize {
     let last = SCALE_LADDER.len() - 1;
     if up {
@@ -82,6 +85,7 @@ pub fn ladder_step(index: usize, up: bool) -> usize {
 /// `screen` is needed because a profile that names neither a ratio nor a size opens
 /// at the screen's size (see [`ScaleProfile::output_size_for`]): what the user is
 /// looking at depends on the display, not on the config alone.
+#[cfg(unix)]
 pub fn profile_ratio(profile: &ScaleProfile, screen: (u32, u32)) -> f32 {
     let (internal_width, _) = profile.internal_size();
     let (width, _) = profile.output_size_for(screen);
@@ -97,6 +101,7 @@ pub fn profile_ratio(profile: &ScaleProfile, screen: (u32, u32)) -> f32 {
 ///
 /// The ratio is remembered, not measured: 1.25 stays exactly 1.25 through the
 /// round trip, so this only absorbs float noise, not a real difference.
+#[cfg(unix)]
 pub const RATIO_EPSILON: f32 = 0.001;
 
 /// The ratio the two-state toggle scales to — 「设定比例」.
@@ -105,6 +110,7 @@ pub const RATIO_EPSILON: f32 = 0.001;
 /// otherwise whatever the window was opened at. `screen` is only consulted when the
 /// profile has no explicit size, so passing a running session's own `output_size`
 /// is always the right call there.
+#[cfg(unix)]
 pub fn toggle_target(profile: &ScaleProfile, screen: (u32, u32)) -> f32 {
     profile_ratio(profile, screen)
 }
@@ -116,6 +122,7 @@ pub fn toggle_target(profile: &ScaleProfile, screen: (u32, u32)) -> f32 {
 /// again and it is back at its own pixels. Being at the target is what tells the
 /// two apart — which also covers a game that was launched straight into the target
 /// size, so the first toggle cancels rather than doing nothing visible.
+#[cfg(unix)]
 pub fn toggled_ratio(current: f32, target: f32) -> f32 {
     if (current - target).abs() < RATIO_EPSILON {
         1.0
@@ -189,6 +196,7 @@ impl ScaleAction {
     /// The split matters because the two live in different places: filters are
     /// root-window properties on gamescope's own Xwayland ([`x11`]), while the
     /// window size is the compositor's ([`crate::desktop::kde`]).
+    #[cfg(unix)]
     pub fn is_filter(self) -> bool {
         matches!(
             self,
@@ -202,6 +210,7 @@ impl ScaleAction {
     }
 }
 
+#[cfg(all(test, unix))]
 #[cfg(test)]
 mod tests {
     use super::*;

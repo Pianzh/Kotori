@@ -36,6 +36,7 @@ const SWEEP_BUDGET: Duration = Duration::from_secs(20);
 /// 记下 kotori 在哪个 prefix 下起过游戏。
 ///
 /// 失败只记日志:记不住的代价是"下次关机可能留个残留",不该影响这一局开始。
+#[cfg(unix)]
 pub fn record(prefix: &Path) {
     let dir = crate::config::data_dir();
     if let Err(err) = record_at(&dir, prefix) {
@@ -47,6 +48,7 @@ pub fn record(prefix: &Path) {
 }
 
 /// [`record`] 的显式目录版(测试用它,不会碰到真机的数据目录)。
+#[cfg(unix)]
 pub fn record_at(dir: &Path, prefix: &Path) -> std::io::Result<()> {
     if recorded_at(dir).iter().any(|known| known == prefix) {
         return Ok(());
@@ -145,6 +147,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_prefix_is_only_written_down_once() {
         let dir = scratch("prefixes-dedup");
         let prefix = dir.join("prefix");
@@ -158,6 +161,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn a_missing_file_just_means_nothing_was_recorded() {
         let dir = scratch("prefixes-missing");
         assert!(recorded_at(&dir).is_empty());

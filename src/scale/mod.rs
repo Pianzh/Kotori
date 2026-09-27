@@ -97,6 +97,11 @@ pub struct LaunchSpec<'a> {
     /// Launch **without** gamescope: plain wine on Linux, the exe itself on
     /// Windows. Session tracking still runs (process name → `Ended`), which is
     /// what makes save sync work for a direct launch too.
+    ///
+    /// ⚠ Windows 上这个字段**只被写、不被读**：那边没有 gamescope，"是不是直启"
+    /// 由 `unsupported` 后端自己决定。它留在结构体里是因为两端共用同一份
+    /// `LaunchSpec` —— 砍掉会让形状分叉，所以这里精确放行那一条 lint。
+    #[cfg_attr(windows, allow(dead_code))]
     pub direct_launch: bool,
 }
 
@@ -161,6 +166,12 @@ pub enum SessionKind {
 }
 
 /// A live session: either a game kotori launched, or a process it only watches.
+///
+/// ⚠ 下面 `profile` / `output_size` / `runtime_ratio` / `process_group` / `direct`
+/// 这五个字段在 **Windows 上只被写、不被读**:那边没有 gamescope,缩放那一套
+/// (运行时改窗口、按进程组收尾)压根不存在,`unsupported` 后端只填不用。它们仍留在
+/// 结构体里 —— 会话的形状两端必须一致 —— 所以逐条精确放行那一条 lint,而不是靠 CI
+/// 里一个全局的 `-A dead_code`。
 #[derive(Debug, Clone)]
 pub struct ScaleSession {
     pub session_id: String,
@@ -168,6 +179,7 @@ pub struct ScaleSession {
     pub game_id: Option<String>,
     /// `None` for watch-only sessions: kotori launched nothing.
     pub gamescope_pid: Option<u32>,
+    #[cfg_attr(windows, allow(dead_code))]
     pub profile: ScaleProfile,
     /// The output size this session's window was opened at, in physical pixels:
     /// what the profile asked for, or the screen (see
@@ -176,6 +188,7 @@ pub struct ScaleSession {
     /// Recorded at launch rather than re-derived, because it is the one number that
     /// actually describes this session — and the one clients want when they ask what
     /// resolution a running game is being drawn at.
+    #[cfg_attr(windows, allow(dead_code))]
     pub output_size: (u32, u32),
     /// The upscale ratio this session is running at *now*: output pixels ÷ the
     /// game's own resolution. It starts as whatever the profile asked for and is
@@ -185,9 +198,11 @@ pub struct ScaleSession {
     /// while its geometry can be queried, doing so needs a D-Bus service of our own
     /// for every keypress. The number only has to be good enough for "one step
     /// further", and a session is rebuilt from its profile every launch.
+    #[cfg_attr(windows, allow(dead_code))]
     pub runtime_ratio: f32,
     pub started_at: std::time::Instant,
     /// Process group to signal on stop; `None` when there is nothing to kill.
+    #[cfg_attr(windows, allow(dead_code))]
     pub process_group: Option<u32>,
     /// The process this session follows, if any.
     pub process_name: Option<String>,
@@ -213,6 +228,7 @@ pub struct ScaleSession {
     /// True when the game was launched **without** gamescope (user choice on
     /// Linux; the only launch there is on Windows). Scale actions on such a
     /// session are refused: there is no gamescope to talk to.
+    #[cfg_attr(windows, allow(dead_code))]
     pub direct: bool,
 }
 
@@ -226,15 +242,21 @@ pub struct ScaleStatus {
 }
 
 /// Scaling errors
+///
+/// ⚠ 前三条是 gamescope / wine 那条路(Linux)专属的:Windows 的空后端既不产生、
+/// 也没有任何地方 match 它们,所以如实 `#[cfg(unix)]`。
 #[derive(Debug, thiserror::Error)]
 pub enum ScaleError {
     #[error("gamescope not found")]
+    #[cfg(unix)]
     GamescopeNotFound,
 
     #[error("gamescope failed to start: {0}")]
+    #[cfg(unix)]
     GamescopeStartFailed(String),
 
     #[error("wine not found")]
+    #[cfg(unix)]
     WineNotFound,
 
     /// 直接启动(无 gamescope)时游戏没能跑起来:路径不对、缺 DLL、起来就退。

@@ -125,6 +125,7 @@ impl ProcEntry {
     /// 15 字节(内核的 `TASK_COMM_LEN`),`kotori-observe-proc` 会变成
     /// `kotori-observe-` —— 拿它当"跟的是谁"报给用户,人家会以为跟错了东西
     /// (2026-09-20 实测就是这么显示出来的)。
+    #[cfg(unix)]
     pub fn display_name(&self) -> String {
         // 命令行是 NUL 分隔的,只有**第一个字段**是 argv[0](后面是参数)。
         let argv0 = self.cmdline.split('\0').next().unwrap_or_default().trim();
@@ -221,10 +222,12 @@ pub const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2)
 
 /// How long a watch-only session waits for the game to show up before giving
 /// up (the user may click "monitor" and then start the game).
+#[cfg(unix)]
 pub const APPEAR_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Wait until no process matches `name`. Returns immediately when it is not
 /// running right now.
+#[cfg(unix)]
 pub async fn wait_until_gone(name: &str) {
     if !is_running(name) {
         return;
@@ -245,6 +248,7 @@ pub async fn wait_until_gone(name: &str) {
 /// session can hang is that one of them (`winedevice.exe`) ignores SIGTERM and
 /// outlives the game by forever. So "the process tree is not empty" must not be
 /// read as "the game is still running"; this list is what separates the two.
+#[cfg(unix)]
 const PLUMBING: [&str; 16] = [
     "gamescope",
     "gamescope-wl",
@@ -265,6 +269,7 @@ const PLUMBING: [&str; 16] = [
 ];
 
 /// Is this the name of plumbing rather than of a game?
+#[cfg(unix)]
 pub fn is_plumbing(name: &str) -> bool {
     PLUMBING.contains(&normalize_process_name(name).as_str())
 }
