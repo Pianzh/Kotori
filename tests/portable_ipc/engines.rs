@@ -67,8 +67,8 @@ fn round_trip(engine: &str) {
     );
     // 云端落点在两个引擎上**叫法不同**：rclone 是目录名（= 游戏 id），kopia 是 `game:`
     // 标签值（= 身份 id，一个 UUID）。所以别硬写 `contract` —— 问云端一次，拿它给的 id
-    // 当 key。⚠ 这正是 `PLAN-cloud-identity.md` §13.5 警告过的那件事：拿本机 id 当云端
-    // 落点用。（rclone 那条恰好在两个 id 相同时是对的，所以只有 kopia 会红。）
+    // 当 key。⚠ 这里踩过一次：拿本机 id 当云端落点递进去，kopia 侧报"云端没有这一版"
+    // 把 CI 弄红（rclone 那条恰好在两个 id 相同时是对的，所以只有 kopia 会红）。
     let key = fixture.rpc("sync.cloud_games", json!({}))["result"]["games"][0]["id"]
         .as_str()
         .expect("云端应该有这一款")
