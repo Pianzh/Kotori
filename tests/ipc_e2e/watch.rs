@@ -48,9 +48,10 @@ fn auto_watch_follows_a_game_kotori_did_not_launch() {
         .spawn()
         .expect("spawn the watched process");
 
-    // 后台那圈轮询要自己发现它(两个周期 + 余量)。
+    // 后台那圈轮询要自己发现它（周期 2s，这里给足余量：整机忙时 20s 曾经过线，
+    // 认出来就立刻返回，等满只在真失败时发生 —— 见 PLATFORMS.md 待办 9）。
     assert!(
-        wait_until(Duration::from_secs(20), || session_count(&fixture) == 1),
+        wait_until(Duration::from_secs(60), || session_count(&fixture) == 1),
         "daemon 没有自己认出这个进程\n--- daemon log ---\n{}",
         fixture.logs()
     );
@@ -87,7 +88,7 @@ fn auto_watch_follows_a_game_kotori_did_not_launch() {
         .spawn()
         .expect("spawn the watched process again");
     assert!(
-        wait_until(Duration::from_secs(20), || session_count(&fixture) == 1),
+        wait_until(Duration::from_secs(60), || session_count(&fixture) == 1),
         "下一局没有被重新认出来\n--- daemon log ---\n{}",
         fixture.logs()
     );
@@ -165,7 +166,7 @@ fn one_process_is_claimed_by_a_single_game() {
         .spawn()
         .expect("spawn the watched process");
     assert!(
-        wait_until(Duration::from_secs(20), || session_count(&fixture) == 1),
+        wait_until(Duration::from_secs(60), || session_count(&fixture) == 1),
         "daemon 没有自己认出这个进程\n--- daemon log ---\n{}",
         fixture.logs()
     );
