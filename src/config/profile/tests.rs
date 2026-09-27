@@ -25,6 +25,9 @@ fn algorithm_labels_round_trip() {
 }
 
 /// 留空＝自动(启动时按屏幕来);填了才覆盖。用户 2026-09-13 定的语义。
+///
+/// ⚠ `output_size_for` 只给 gamescope 那条路用(Windows 没有 gamescope),跟着它一起 cfg。
+#[cfg(unix)]
 #[test]
 fn an_empty_profile_gets_the_screen_and_a_filled_one_overrides_it() {
     let screen = (2560, 1440);
@@ -200,6 +203,9 @@ fn a_hand_written_separator_is_rejected() {
 }
 
 /// 自由参数是"写了才算数":空数组就是老行为(由 kotori 拼),不是"空的自由参数"。
+///
+/// ⚠ `free_form` 是"运行时缩放的开关",只给 gamescope 用,跟着它一起 cfg。
+#[cfg(unix)]
 #[test]
 fn free_form_is_about_the_arguments_being_there() {
     let mut profile = ScaleProfile::default_for();
