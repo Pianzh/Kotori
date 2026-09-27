@@ -199,14 +199,30 @@ pub fn exe_owner(
         .map(|(_, game)| game.name.clone())
 }
 
+/// 「这个 exe 已经有主了」的**拒绝语** —— `game.create` 与 `game.update` 共用同一句。
+///
+/// 同一件事在两处必须说同一句话：界面、CLI 与 e2e 都是按这句话认的，分成两句就会漂移。
+/// `exclude_id` 是"别把自己算成占用者"（改自己档案时路径通常没变）。
+pub fn exe_conflict_error(
+    config: &crate::config::Config,
+    exe_path: &Path,
+    exclude_id: Option<&str>,
+) -> Option<String> {
+    exe_owner(config, exe_path, exclude_id).map(|owner| {
+        format!(
+            "可执行文件已经属于「{owner}」：同一个 exe 只能建一条档案\
+             （两条档案会让云端的版本历史分家、观测同一个进程时分不清谁在跑）"
+        )
+    })
+}
+
 /// 「这个 exe 已经在库里了」的一句话。
 ///
 /// 规矩是**一个 exe 只许有一条档案**：直接启动与自动追踪本来就是同一条档案上的两个
-/// 开关（用户 2026-09-21 原话："它本来就只是一个选项，应该是同一个档案的"），
-/// `game.create` 已经硬拒绝，`game.update` 与扫描那条路的收口还在计划里。
-///
-/// 今天只剩 CLI 的 `add` 还在用它，而那条路的行为是**跳过**已入库的 exe，所以这句提示
-/// 实际只在"同一个文件的两种写法"时才可能出现。
+/// 开关（用户 2026-09-21 原话："它本来就只是一个选项，应该是同一个档案的"）。
+/// `game.create` 与 `game.update` 都**硬拒绝**（走 [`exe_conflict_error`]）；
+/// CLI 的 `add` / 扫描那条路的规矩是**跳过**已入库的 exe（用户一次建一批档案时，不该被
+/// 其中一个重复卡住），所以这句提示实际只在"同一个文件的两种写法"时才可能出现。
 ///
 /// Paths are compared canonicalized (resolving symlinks; both sides fall back
 /// to the literal path when that fails) so the same file under a different

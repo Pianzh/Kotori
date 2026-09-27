@@ -46,12 +46,8 @@ impl Daemon {
             // ⚠ **同一个 exe 只许有一条档案**(用户 2026-09-20 改的主意:从前是
             // 「警告但不阻止」,他后来认定它会给云同步留下说不清的坑 —— 版本历史
             // 按档案分开存、两条档案观测同一个进程。"能保证不出问题"之前,挡住更省事)。
-            let owner = crate::game::exe_owner(config, &new_game.exe_path, None);
-            if let Some(owner) = owner {
-                return Err(format!(
-                    "可执行文件已经属于「{owner}」：同一个 exe 只能建一条档案\
-                     （两条档案会让云端的版本历史分家、观测同一个进程时分不清谁在跑）"
-                ));
+            if let Some(error) = crate::game::exe_conflict_error(config, &new_game.exe_path, None) {
+                return Err(error);
             }
             // 同名冲突在 `generate_unique_game_id` 里已经用后缀解决了 —— 同一款游戏
             // 改名建两条是合法需求,报错只会把它挡在门外。id 在写锁内生成,两个并发
@@ -158,6 +154,32 @@ impl Daemon {
                     }
                     crate::wine::resolve_save_path(&root, &game_dir, save)?;
                 }
+            }
+
+            // ⚠ **一个 exe 只许有一条档案**（用户 2026-09-20 定的规矩；`game.create` 那道
+            // 硬拒绝的同一条）：**换 exe 这条路也要挡一次** —— 两条档案指着同一个文件，云端
+            // 的版本历史会分家、观测同一个进程时分不清谁在跑。`Some(id)` 把自己排除掉，
+            // "路径没变"的那次更新照旧合法（指纹还会重算）。
+            //
+            // 引用优先于路径（与下面"同一包里两者都给时，引用赢"的口径一致）；引用此刻
+            // 解析不出来（盘不在）就不拦 —— 那种情况下指纹也只会记成"还不知道"，没有
+            // 认错人的风险。id 不存在时不在这儿抢跑，交给下面那句报"找不到游戏"。
+            let claimed = patch
+                .exe_mount
+                .clone()
+                .flatten()
+                .and_then(|mount| mount.resolve().ok())
+                .or_else(|| {
+                    patch
+                        .exe_path
+                        .clone()
+                        .filter(|path| !path.as_os_str().is_empty())
+                });
+            if config.games.contains_key(id)
+                && let Some(exe) = claimed
+                && let Some(error) = crate::game::exe_conflict_error(config, &exe, Some(id))
+            {
+                return Err(error);
             }
 
             let game = config

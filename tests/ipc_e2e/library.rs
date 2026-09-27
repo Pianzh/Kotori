@@ -168,10 +168,8 @@ fn library_entries_are_managed_over_ipc() {
     );
 }
 
-// `game.update` 这条收口按用户 2026-09-20 的决定**先搁置**：硬拒绝当时只上了
-// `game.create` 那条路（见 `game::exe_owner` 的注释）。用例先写好搁在这儿，
-// 等收口落地时摘掉 `#[ignore]` —— 别让它长期红着，那会把别的回归信号一起淹掉。
-#[ignore = "game.update 的 exe 收口搁置中,产品实现后摘掉这条"]
+// `game.update` 这条收口 2026-09-27 落地：换 exe 时也要挡（`game::exe_conflict_error`,
+// 与 `game.create` 共用同一句拒绝语），`Some(id)` 把自己排除掉 —— "路径没变"的更新照旧合法。
 #[test]
 fn updating_a_game_to_another_games_exe_is_refused() {
     let mut fixture = Fixture::new("duplicate-update");
