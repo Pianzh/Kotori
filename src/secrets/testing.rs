@@ -117,6 +117,9 @@ esac
     }
 
     /// Where the fake tool keeps one account's secret.
+    ///
+    /// ⚠ 只有 unix 侧的单测读它（`secret-tool` 那套），跟着一起 cfg。
+    #[cfg(unix)]
     pub(crate) fn stored(&self, key: SecretKey) -> PathBuf {
         self.dir.join(key.account())
     }
