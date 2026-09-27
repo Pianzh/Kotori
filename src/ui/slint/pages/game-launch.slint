@@ -41,7 +41,7 @@ export component GameLaunchGroup inherits VerticalLayout {
             Group {
                 CardRow {
                     title: "直接启动（不走缩放）";
-                    description: "Linux 上不套 gamescope 直接跑 wine；Windows 上启动本来就是这样。退出后照常上传存档，但运行时缩放对这一局不可用。";
+                    description: "不套 gamescope 直接跑，运行时缩放对这一局不可用。Linux 上直接跑 wine，Windows 上本来就是这样。退出后照常上传存档。";
                     Switch {
                         // `game-direct-launch` 是 in 属性(render 从草稿推),
                         // 不能 <=> 双向链;点了发消息,新值下一帧推回来。
@@ -52,7 +52,7 @@ export component GameLaunchGroup inherits VerticalLayout {
                 Divider { }
                 CardRow {
                     title: "启动参数";
-                    description: "传给这个 exe 的额外参数，启动时接在它后面（如 -nojapanese）。参数之间用空格分隔；不需要就留空。";
+                    description: "启动时接在这个 exe 后面，如 -nojapanese。参数之间用空格分隔，不需要就留空。";
                     TextField {
                         field-width: 340px;
                         text <=> root.launch-args;
@@ -64,7 +64,7 @@ export component GameLaunchGroup inherits VerticalLayout {
                 VerticalLayout {
                     padding: 16px;
                     Text {
-                        text: "上面这条路管的是 Kotori 怎么把它跑起来。游戏不是从这里启动的,下面「自动追踪」照样算数。";
+                        text: "这一组管 Kotori 怎么把它跑起来。游戏不是从这里启动的，下面「自动追踪」照样算数。";
                         font-size: 11px;
                         color: Tokens.text-3;
                         wrap: word-wrap;
@@ -89,7 +89,7 @@ export component GameLaunchGroup inherits VerticalLayout {
             Group {
                 CardRow {
                     title: "自动追踪";
-                    description: "不必从 Kotori 启动:双击图标 / 启动器 / Steam 拉起来的那一局,Kotori 也会盯住进程,游戏退出后照常上传存档(状态栏显示成「仅观测」)。";
+                    description: "从图标、启动器或 Steam 拉起来的那一局，Kotori 也会盯住进程。游戏退出后照常上传存档，状态栏显示成「仅观测」。";
                     Switch {
                         checked: root.game-auto-watch;
                         toggled => { root.auto-watch-toggled(self.checked); }
@@ -98,7 +98,7 @@ export component GameLaunchGroup inherits VerticalLayout {
                 Divider { }
                 CardRow {
                     title: "跟随的进程";
-                    description: "留空 = 按上面那个可执行文件的文件名认。填了它,就按这个名字认 —— 但它只是**预筛**:真正算数的是进程的 exe 完整路径必须是上面那一个(否则库里两款都叫 Game.exe 的游戏会互相认领)。";
+                    description: "留空按上面那个 exe 的文件名认。填了就按这个名字预筛。真正算数的是进程的 exe 完整路径必须是上面那一个，否则库里两款都叫 Game.exe 的会互相认领。";
                     TextField {
                         field-width: 240px;
                         text <=> root.process-name;

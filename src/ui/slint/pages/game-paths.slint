@@ -55,7 +55,7 @@ export component GamePathsGroup inherits VerticalLayout {
         Group {
             CardRow {
                 title: "游戏根目录";
-                description: "启动时的 CWD,也是 relative 存档路径的基准。";
+                description: "启动时的 CWD，也是 relative 存档路径的基准。";
                 PathField {
                     field-width: 340px;
                     text <=> root.game-dir;
@@ -68,8 +68,8 @@ export component GamePathsGroup inherits VerticalLayout {
             CardRow {
                 title: "根目录所在的外置盘";
                 description: root.mount-supported
-                    ? "盘号是磁盘的 UUID（如 5A3F-2B1C）；相对目录以**磁盘根**为基准（如 Games/某游戏）。盘号留空＝这个位置不用引用，只看上面那个绝对路径。"
-                    : "Windows 上读不到挂载表，这两栏填了也不生效。从别的机器带过来的引用在这里解析不出来（上面的路径会是空的）—— 把这两栏清空、填上真实路径就恢复正常。";
+                    ? "盘号是磁盘的 UUID（如 5A3F-2B1C），相对目录以磁盘根为基准（如 Games/某游戏）。盘号留空就不用引用，只看上面那个绝对路径。"
+                    : "Windows 上读不到挂载表，这两栏填了也不生效。从别的机器带过来的引用在这里解析不出来，上面的路径会是空的。清空这两栏、填上真实路径就恢复。";
                 DiskFields {
                     disk <=> root.game-dir-disk;
                     relative <=> root.game-dir-relative;
@@ -93,7 +93,7 @@ export component GamePathsGroup inherits VerticalLayout {
             CardRow {
                 title: "可执行文件所在的外置盘";
                 description: root.mount-supported
-                    ? "同上：盘号留空＝不用引用。盘不在时这一款照样能在库里留着，只是启动会明确报「未挂载」。"
+                    ? "同上：盘号留空就不用引用。盘不在时这一款照样能在库里留着，启动会报「未挂载」。"
                     : "Windows 上不生效，清空这两栏即可回到绝对路径。";
                 DiskFields {
                     disk <=> root.exe-disk;

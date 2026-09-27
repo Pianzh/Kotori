@@ -66,7 +66,7 @@ export component GameSyncGroup inherits Rectangle {
                             if root.sync-can-act && root.sync-pending : HorizontalLayout {
                                 spacing: 8px;
                                 StdButton {
-                                    label: "确认恢复(会覆盖本地存档)";
+                                    label: "确认恢复（会覆盖本地存档）";
                                     button-width: 196px;
                                     button-enabled: !root.sync-busy;
                                     clicked => { root.sync-restore-confirmed(); }
@@ -98,8 +98,8 @@ export component GameSyncGroup inherits Rectangle {
                     CardRow {
                         title: "参与云同步";
                         description: GameSyncBoard.paths-configured
-                            ? "关掉之后这一款不再自动同步(启动前不取回、退出后不上传),随时能再打开;「立即同步」这类手动动作不受它限制。"
-                            : "先在上面「存档位置」里填好这一款存在哪,才能参与云同步 —— 没有存档位置就没有东西可同步。";
+                            ? "关掉之后这一款不再自动同步，随时能再打开。「立即同步」这类手动动作不受它限制。"
+                            : "先在上面「存档位置」里填好这一款存在哪。没有存档位置就没有东西可同步。";
                         Switch {
                             // 没填路径就打不开；但**已经开着的仍然能关** —— 否则用户会被卡在
                             // 一个关不掉的开关上，而历史配置里确实有"空路径 + 开着"这种状态。
@@ -150,7 +150,7 @@ export component GameSyncGroup inherits Rectangle {
                         padding: 16px;
                         spacing: 4px;
                         Text {
-                            text: "「立即同步」= 把这款游戏的存档立刻传上去(游戏退出后本来就会自动传)；「恢复」= 用云端最新那份覆盖本机的存档目录,本机现在的进度会被盖掉,恢复这一步本身**不能撤销**。想留一手就先点一次「立即同步」,把当前状态也传到云端。";
+                            text: "「恢复」用云端最新一版覆盖本机存档目录，本机进度会被盖掉，不能撤销。「立即同步」把这一款当前的状态传上去，游戏退出后本来也会自动传。想留一手就先点它一次。";
                             font-size: 11px;
                             color: Tokens.text-3;
                             wrap: word-wrap;

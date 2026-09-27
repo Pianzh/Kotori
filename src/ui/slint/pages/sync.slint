@@ -100,19 +100,19 @@ export component SyncPage inherits ScrollView {
                     padding: 16px;
                     spacing: 4px;
                     Text {
-                        text: SyncBoard.loaded ? (SyncBoard.rclone != "" ? "rclone:" + SyncBoard.rclone : "rclone 未安装(Arch:sudo pacman -S rclone)") : "读取中…";
+                        text: SyncBoard.loaded ? (SyncBoard.rclone != "" ? "rclone：" + SyncBoard.rclone : "rclone 未安装（Arch：sudo pacman -S rclone）") : "读取中…";
                         font-size: 11px;
                         color: SyncBoard.rclone != "" || !SyncBoard.loaded ? Tokens.text-3 : Tokens.warn;
                         wrap: word-wrap;
                     }
                     Text {
-                        text: "凭据存放:" + SyncBoard.keyring;
+                        text: "凭据存放：" + SyncBoard.keyring;
                         font-size: 11px;
                         color: SyncBoard.ephemeral ? Tokens.warn : Tokens.text-3;
                         wrap: word-wrap;
                     }
                     if SyncBoard.ephemeral : Text {
-                        text: "⚠ 连凭据文件都写不下去,填进去的凭据只留在内存里,重启后要重新输入。";
+                        text: "凭据文件写不下去，填进去的凭据只留在内存里，重启后要重新输入。";
                         font-size: 11px;
                         color: Tokens.warn;
                         wrap: word-wrap;
@@ -124,7 +124,7 @@ export component SyncPage inherits ScrollView {
                         wrap: word-wrap;
                     }
                     if SyncBoard.problem != "" : Text {
-                        text: "待解决:" + SyncBoard.problem;
+                        text: "待解决：" + SyncBoard.problem;
                         font-size: 11px;
                         color: Tokens.warn;
                         wrap: word-wrap;
@@ -147,7 +147,7 @@ export component SyncPage inherits ScrollView {
             Group {
                 CardRow {
                     title: "启用云同步";
-                    description: "退出游戏后自动上传存档,启动前自动取回较新的版本。";
+                    description: "退出游戏后自动上传存档，启动前自动取回较新的版本。";
                     Switch {
                         checked <=> SyncBoard.enabled;
                         toggled => { SyncBoard.enabled-toggled(SyncBoard.enabled); }
@@ -156,7 +156,7 @@ export component SyncPage inherits ScrollView {
                 Divider { }
                 CardRow {
                     title: "同步方式";
-                    description: "两种方式在桶里各写各的区域,互相看不见对方的数据(数据都还在,只是这边读不出来)。双系统/多机必须选同一种。";
+                    description: "两种方式在桶里各写各的区域，互相读不到对方的数据。数据都还在，只是这边读不出来。双系统或多机必须始终用同一种。";
                     HorizontalLayout {
                         spacing: 8px;
                         StdButton {
@@ -176,7 +176,7 @@ export component SyncPage inherits ScrollView {
                 Divider { }
                 CardRow {
                     title: "rclone 程序位置";
-                    description: "rclone 可执行文件在哪。填目录或完整路径都行；留空＝由 Kotori 自己去找。把 rclone 放在一个目录里、不想动 PATH 的人用这一项。";
+                    description: "rclone 可执行文件在哪，填目录或完整路径都行。留空由 Kotori 自己去找。不想动 PATH 的，把 rclone 放进一个目录再填这里。";
                     VerticalLayout {
                         spacing: 4px;
                         PathField {
@@ -198,7 +198,7 @@ export component SyncPage inherits ScrollView {
                 Divider { }
                 CardRow {
                     title: "kopia 程序位置";
-                    description: "kopia 可执行文件在哪。填目录或完整路径都行；留空＝由 Kotori 自己去找（先看 KOTORI_KOPIA 环境变量，再看 Kotori 自己的目录，最后 PATH）。";
+                    description: "kopia 可执行文件在哪，填目录或完整路径都行。留空由 Kotori 自己去找：先 KOTORI_KOPIA 环境变量，再 Kotori 自己的目录，最后 PATH。";
                     VerticalLayout {
                         spacing: 4px;
                         PathField {
@@ -224,7 +224,7 @@ export component SyncPage inherits ScrollView {
                     // 它 2026-09-18 曾被搬到最下面「凭据」组里,而那一组的按钮是「保存凭据」
                     // —— 那颗**不存桶名**(凭据进密钥环、桶名进 config),于是"填在下面、
                     // 存在上面"变成一个人人都会踩的坑。它现在就在自己的保存按钮上面一行。
-                    description: "Backblaze 控制台(B2 Cloud Storage → Buckets → Create a Bucket)里你自己建的桶的名字:全局唯一,重名要换一个;类型选 Private——存档不该公开可读。它不是凭据:只能访问这个桶的 keyID / applicationKey 在凭据区填。bucket 是整个桶,下面那行 prefix 是桶里归 Kotori 独占的目录(<bucket>/<prefix>/…),桶里放别的东西不冲突,Kotori 只碰自己 prefix 下的路径。⚠ 随本组最下面的「保存设置」一起保存。";
+                    description: "在 B2 控制台建的桶名，类型选 Private。桶名全局唯一，重名要换一个。能访问这个桶的 keyID 与 applicationKey 在「凭据」里填。随本组最下面的「保存设置」一起保存。";
                     TextField {
                         field-width: 220px;
                         text <=> SyncBoard.bucket;
@@ -235,7 +235,7 @@ export component SyncPage inherits ScrollView {
                 Divider { }
                 CardRow {
                     title: "prefix";
-                    description: "bucket 里归 Kotori 独占的目录(bucket 在上面那一行填),bucket 里的其他东西我们一律不碰。";
+                    description: "桶里归 Kotori 独占的目录，完整路径是 <bucket>/<prefix>/…。桶里的其他东西不碰。";
                     TextField {
                         field-width: 220px;
                         text <=> SyncBoard.prefix;
@@ -246,7 +246,7 @@ export component SyncPage inherits ScrollView {
                 Divider { }
                 CardRow {
                     title: "API endpoint";
-                    description: "留空即可(rclone 会自己找到)。填 s3.<区域>.backblazeb2.com 会被明确拒绝 —— 那对 s3 后端才成立。";
+                    description: "留空即可，rclone 会自己找。填 s3.<区域>.backblazeb2.com 会被拒绝，那个域名只对 s3 后端成立。";
                     TextField {
                         field-width: 220px;
                         text <=> SyncBoard.endpoint;
@@ -257,7 +257,7 @@ export component SyncPage inherits ScrollView {
                 Divider { }
                 CardRow {
                     title: "保留版本数";
-                    description: "0 表示永不删除云端版本;填写后只清理旧版本包,绝不动本地存档。";
+                    description: "云端保留几个版本，0 表示永不删除。只清理旧的版本包，本地存档不动。";
                     TextField {
                         field-width: 100px;
                         text <=> SyncBoard.keep-versions;

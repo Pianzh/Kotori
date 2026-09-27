@@ -76,7 +76,7 @@ export component SettingsPage inherits ScrollView {
                 spacing: 4px;
                 Text { text: "设置"; font-size: 28px; font-weight: 600; color: Tokens.text; }
                 Text {
-                    text: "这台机器上的后台服务、启动与环境。云存档在「云同步」那一页,单个游戏的缩放/存档在游戏库里点进去。";
+                    text: "后台服务、启动环境与配置文件位置。";
                     font-size: 14px;
                     color: Tokens.text-3;
                 }
@@ -97,7 +97,7 @@ export component SettingsPage inherits ScrollView {
             Group {
                 CardRow {
                     title: "守护进程";
-                    description: "游戏启动、缩放、存档同步都由它执行;这个界面只是它的客户端。";
+                    description: "游戏启动、缩放与存档同步都由它执行。";
                     HorizontalLayout {
                         spacing: 10px;
                         alignment: center;
@@ -156,7 +156,7 @@ export component SettingsPage inherits ScrollView {
             revealed: root.revealed;
             step: 3;
             bottom: 8px;
-            SectionTitle { text: "Wine 目录(prefix)"; }
+            SectionTitle { text: "Wine 目录（prefix）"; }
         }
         if !root.is-windows : RevealItem {
             revealed: root.revealed;
@@ -165,7 +165,7 @@ export component SettingsPage inherits ScrollView {
             Group {
                 CardRow {
                     title: "prefix 路径";
-                    description: "启动游戏时使用。留空 = 自动探测:游戏目录内的可携式 prefix → 常见位置 → ~/.wine。";
+                    description: "启动游戏时用的 wine prefix。留空会自动探测：游戏目录内的可携式 prefix → 常见位置 → ~/.wine。";
                     HorizontalLayout {
                         spacing: 8px;
                         alignment: center;
@@ -217,9 +217,9 @@ export component SettingsPage inherits ScrollView {
                 VerticalLayout {
                     padding: 16px;
                     spacing: 3px;
-                    Text { text: "当前生效:" + root.wine.effective; font-size: 12px; color: Tokens.text-3; wrap: word-wrap; }
-                    Text { text: "默认位置:" + root.wine.default-prefix; font-size: 11px; color: Tokens.text-3; wrap: word-wrap; }
-                    Text { text: "WINEPREFIX 环境变量:" + root.wine.environment; font-size: 11px; color: Tokens.text-3; wrap: word-wrap; }
+                    Text { text: "当前生效：" + root.wine.effective; font-size: 12px; color: Tokens.text-3; wrap: word-wrap; }
+                    Text { text: "默认位置：" + root.wine.default-prefix; font-size: 11px; color: Tokens.text-3; wrap: word-wrap; }
+                    Text { text: "WINEPREFIX 环境变量：" + root.wine.environment; font-size: 11px; color: Tokens.text-3; wrap: word-wrap; }
                     Text {
                         text: root.wine.detected.length == 0 ? "没有在常见位置发现 wine prefix" : "自动探测到的 prefix:";
                         font-size: 11px;
@@ -286,7 +286,7 @@ export component SettingsPage inherits ScrollView {
                 VerticalLayout {
                     padding: 16px;
                     Text {
-                        text: "便携 = 配置文件放在 Kotori 程序旁边,整个目录拷到别的机器上就能用;默认则是这台机器自己的配置目录。两个地方都有配置时,**便携那份优先** —— 切换会把当前配置原样写过去,并把让路的那份改名为 .portable-bak(不删)。";
+                        text: "便携配置写在 Kotori 程序旁边，整个目录拷到别的机器就能用。两处都有配置时以便携为准。切换会把当前配置写过去，原来那份改名成 .portable-bak，不删。";
                         font-size: 11px;
                         color: Tokens.text-3;
                         wrap: word-wrap;
@@ -314,7 +314,7 @@ export component SettingsPage inherits ScrollView {
                     title: "依赖";
                     description: root.env-loaded
                         ? root.env-summary
-                        : "启动游戏、缩放与云同步要用到的外部程序。缺了必需项就没法启动,可选的那种会退化成写在下面的样子。";
+                        : "启动游戏、缩放与云同步要用到的外部程序。缺了必需项就没法启动，可选的那种会退化成写在命令行里的样子。";
                     description-color: !root.env-loaded
                         ? Tokens.text-3
                         : (root.env-ok ? Tokens.ok : Tokens.danger);
@@ -341,7 +341,7 @@ export component SettingsPage inherits ScrollView {
                     VerticalLayout {
                         padding: 16px;
                         Text {
-                            text: "还没有检查结果。守护进程连上之后打开这一页,或者点「重新检查」。";
+                            text: "还没有检查结果。守护进程连上之后点「重新检查」。";
                             font-size: 11px;
                             color: Tokens.text-3;
                             wrap: word-wrap;
@@ -387,7 +387,7 @@ export component SettingsPage inherits ScrollView {
                             wrap: word-wrap;
                         }
                         if check.install != "" : Text {
-                            text: "装它:" + check.install;
+                            text: "装它：" + check.install;
                             font-size: 11px;
                             color: Tokens.accent;
                             wrap: word-wrap;

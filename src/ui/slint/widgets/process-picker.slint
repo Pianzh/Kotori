@@ -97,7 +97,7 @@ export component ProcessPicker inherits Rectangle {
             }
 
             if !ProcessPickerState.loading && ProcessPickerState.rows.length == 0 : Text {
-                text: "没有可以挑的进程。游戏开起来之后再打开这里 —— 只列看着像游戏的那些(Windows 上是有可见窗口的进程)。";
+                text: "没有可以挑的进程。游戏开起来之后再打开这里，只列看着像游戏的那些（Windows 上是有可见窗口的进程）。";
                 font-size: 12px;
                 color: Tokens.text-3;
                 wrap: word-wrap;
@@ -144,7 +144,7 @@ export component ProcessPicker inherits Rectangle {
 
             Divider { }
             Text {
-                text: "挑中的进程会用它的 exe 路径建一条新档案 —— 档案认人也是靠这个完整路径。";
+                text: "挑中的进程会用它的 exe 路径建一条新档案，档案认人也是靠这个完整路径。";
                 font-size: 11px;
                 color: Tokens.text-3;
                 wrap: word-wrap;

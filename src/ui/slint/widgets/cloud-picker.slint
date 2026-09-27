@@ -178,8 +178,8 @@ export component CloudPickerDialog inherits Rectangle {
             Divider { }
             Text {
                 text: CloudPickerState.can-create-identity
-                    ? "挑一条就会改成绑它，以后这一款往那条上传。不确定就别挑。"
-                    : "挑中的那条会成为这一款的云端身份：以后两边的版本存在同一处。不确定就别挑 —— 添加之后第一次上传会自己认领。";
+                    ? "挑一条就改成绑它，以后这一款往那条上传。不确定就别挑。"
+                    : "挑中的那条会成为这一款的云端身份，两边的版本存在同一处。不确定就别挑，添加之后第一次上传会自己认领。";
                 font-size: 11px;
                 color: Tokens.text-3;
                 wrap: word-wrap;

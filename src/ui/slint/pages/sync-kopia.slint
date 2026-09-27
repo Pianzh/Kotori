@@ -37,14 +37,14 @@ export component SyncKopiaGroup inherits Rectangle {
             spacing: 4px;
             Text {
                 text: root.binary != ""
-                    ? "kopia:" + root.binary
-                    : "kopia 未安装(Arch:sudo pacman -S archlinuxcn/kopia;Windows 用官方 release)";
+                    ? "kopia：" + root.binary
+                    : "kopia 未安装（Arch：sudo pacman -S archlinuxcn/kopia；Windows 用官方 release）";
                 font-size: 11px;
                 color: root.binary != "" ? Tokens.text-3 : Tokens.warn;
                 wrap: word-wrap;
             }
             Text {
-                text: "kopia 把存档存成一个内容寻址的仓库:增量、去重、自带加密。仓库落在 <bucket>/" + root.repo-prefix + " 下,与 rclone 那条路互不干扰,也不会互相读到。";
+                text: "kopia 把存档存成内容寻址的仓库：增量、去重、自带加密。落在 <bucket>/" + root.repo-prefix + " 下，与 rclone 那条路互不干扰，也读不到对方。";
                 font-size: 11px;
                 color: Tokens.text-3;
                 wrap: word-wrap;
@@ -54,8 +54,8 @@ export component SyncKopiaGroup inherits Rectangle {
         CardRow {
             title: "仓库密码";
             description: root.using-default
-                ? "现在用的是默认密码 kotori —— 任何拿到这个 bucket 的人都能解开仓库。想保护就自己设一个(所有端要一致)。"
-                : "已设自己的密码(存在凭据库里,不进 argv)。留空保存 = 改回默认的 kotori。";
+                ? "现在用的是默认密码 kotori，拿到这个 bucket 的人都能解开仓库。想保护就自己设一个，所有端要一致。"
+                : "已设自己的密码，存在凭据库里，不进 argv。留空保存即改回默认的 kotori。";
             TextField {
                 field-width: 220px;
                 text <=> root.password;
@@ -87,24 +87,24 @@ export component SyncKopiaGroup inherits Rectangle {
             padding-bottom: 16px;
             spacing: 3px;
             Text {
-                text: "让别人自己用 kopia 读这个仓库,需要:";
+                text: "让别人自己用 kopia 读这个仓库，需要：";
                 font-size: 11px;
                 color: Tokens.text-2;
             }
             Text {
-                text: "① 装 kopia 0.22 或更新  ② bucket:" + root.bucket + "(要改它在上面「连接与保留」里)  ③ 前缀:" + root.repo-prefix;
+                text: "① 装 kopia 0.22 或更新  ② bucket：" + root.bucket + "（要改它在上面「连接与保留」里）  ③ 前缀：" + root.repo-prefix;
                 font-size: 11px;
                 color: Tokens.text-3;
                 wrap: word-wrap;
             }
             Text {
-                text: "④ 密码:" + root.password-state;
+                text: "④ 密码：" + root.password-state;
                 font-size: 11px;
                 color: root.using-default ? Tokens.warn : Tokens.text-3;
                 wrap: word-wrap;
             }
             Text {
-                text: "不需要同一把 B2 key:任何对这个 bucket 有读权限的 key 都能连(kopia repository connect b2 --readonly 还能保证不动仓库)。";
+                text: "不需要同一把 B2 key：任何对这个 bucket 有读权限的 key 都能连。kopia repository connect b2 --readonly 还能保证不动仓库。";
                 font-size: 11px;
                 color: Tokens.text-3;
                 wrap: word-wrap;

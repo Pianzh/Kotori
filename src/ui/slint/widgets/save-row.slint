@@ -62,7 +62,7 @@ export component SaveRow inherits Rectangle {
         TextField {
             field-width: 150px;
             text: root.exclude;
-            placeholder: "排除:*.log, cache/";
+            placeholder: "排除：*.log, cache/";
             edited(text) => { root.exclude-changed(text); }
         }
 
