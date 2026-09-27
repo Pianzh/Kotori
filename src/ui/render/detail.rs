@@ -110,11 +110,9 @@ pub(super) fn push_detail(ui: &mut Ui) {
     let paths_configured = app
         .selected_game()
         .is_some_and(|game| !game.save_paths.is_empty());
-    push_bool(
-        board.get_paths_configured(),
-        paths_configured,
-        |v| board.set_paths_configured(v),
-    );
+    push_bool(board.get_paths_configured(), paths_configured, |v| {
+        board.set_paths_configured(v)
+    });
     // 「当前绑定」那一行：名字为主，下面是摘要 —— 文案由 `model::cloud::identity_label`
     // 统一生成（启动那一问里那条候选用的也是它，用户 2026-09-24 要的"同一个函数"）。
     let label = app

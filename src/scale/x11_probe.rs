@@ -81,14 +81,7 @@ impl GamescopeDisplay {
     fn wm_class(&self, window: Window) -> Result<Vec<String>, X11Error> {
         let reply = self
             .conn
-            .get_property(
-                false,
-                window,
-                AtomEnum::WM_CLASS,
-                AtomEnum::STRING,
-                0,
-                256,
-            )?
+            .get_property(false, window, AtomEnum::WM_CLASS, AtomEnum::STRING, 0, 256)?
             .reply()?;
         Ok(split_class(&reply.value))
     }
@@ -159,7 +152,10 @@ mod tests {
         assert!(matches_exe("Game", "game.exe"));
         assert!(matches_exe("GAME.EXE", "game"));
         // 副标题:类名比 exe 名长也算同一个。
-        assert!(matches_exe("海猫鸣泣之时散语音版", "海猫鸣泣之时散语音版.exe"));
+        assert!(matches_exe(
+            "海猫鸣泣之时散语音版",
+            "海猫鸣泣之时散语音版.exe"
+        ));
     }
 
     #[test]

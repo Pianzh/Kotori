@@ -93,6 +93,9 @@ pub(super) fn daemon_at(keyring: Keyring) -> (Daemon, PathBuf) {
 /// 读者就停在"已经持有读锁"的状态上；这时放写请求进来（它会排在写锁上），最后松开那把
 /// 同步锁。修复前：读者继续往前走、去取第二次读锁、排在写者后面 —— 死锁成立。
 /// `timeout` 收口，所以它只会失败，不会把 CI 挂住。
+// ⚠ 这条测试**故意**把那把同步锁跨着 `await` 攥住 —— 要的就是那个交错。clippy 的
+// `await_holding_lock` 在这里是误报（被测的锁是 `records`，不是配置那把）。
+#[allow(clippy::await_holding_lock)]
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sync_status_does_not_hold_the_config_lock_across_its_await() {
@@ -149,8 +152,12 @@ async fn cloud_sync_cannot_be_switched_on_without_a_save_location() {
     let fake = FakeTool::new("sync-needs-a-path");
     let (daemon, path) = daemon_at(fake.keyring());
 
-    // 造出"没有存档位置、同步也关着"的那一款。改的是**磁盘上**那份：daemon 改配置时
-    // 先重读磁盘（见 `Daemon::mutate_config`），内存里那份不算数。
+    // 造出"没有存档位置、同步也关着"的那一款。
+    //
+    // 开关先**真的**关一次："关"不看路径，所以这一步会成功，内存与磁盘一起落到"关着"
+    // （生产里这两份总是一致的 —— 启动时 daemon 读的就是这个文件）。存档位置再单独从
+    // **磁盘上**抹掉：daemon 改配置时先重读磁盘（见 `Daemon::mutate_config`），内存里
+    // 那份不再算数。
     let rewrite = |save_paths: Vec<SavePath>, sync_enabled: bool| {
         let mut on_disk = crate::config::load_at(&path).unwrap();
         let game = on_disk.games.get_mut("demo").unwrap();
@@ -158,10 +165,22 @@ async fn cloud_sync_cannot_be_switched_on_without_a_save_location() {
         game.sync_enabled = sync_enabled;
         crate::config::save_to(&path, &on_disk).unwrap();
     };
+    let off = call(
+        &daemon,
+        "game.update",
+        r#"{"id":"demo","sync_enabled":false}"#,
+    )
+    .await;
+    assert_eq!(off["result"]["success"], true, "{off}");
     rewrite(Vec::new(), false);
 
     // 想开：拒绝，并说清原因。
-    let refused = call(&daemon, "game.update", r#"{"id":"demo","sync_enabled":true}"#).await;
+    let refused = call(
+        &daemon,
+        "game.update",
+        r#"{"id":"demo","sync_enabled":true}"#,
+    )
+    .await;
     let message = refused["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains("存档位置"), "{refused}");
     assert!(
@@ -171,7 +190,12 @@ async fn cloud_sync_cannot_be_switched_on_without_a_save_location() {
 
     // 填上路径之后就能开 —— 校验看的是"这一刻"的档案，不认死哪一次请求。
     rewrite(vec![SavePath::inferred("savedata")], false);
-    let allowed = call(&daemon, "game.update", r#"{"id":"demo","sync_enabled":true}"#).await;
+    let allowed = call(
+        &daemon,
+        "game.update",
+        r#"{"id":"demo","sync_enabled":true}"#,
+    )
+    .await;
     assert_eq!(allowed["result"]["success"], true, "{allowed}");
     assert!(daemon.config.read().await.games["demo"].sync_enabled);
 

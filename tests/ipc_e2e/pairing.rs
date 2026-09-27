@@ -433,7 +433,10 @@ fn the_pre_launch_check_asks_once_and_the_answer_sticks() {
     // （"已确认、**而且绑着一条身份**"），可它刚刚把身份清空 —— 于是 `confirmed_on`
     // 判它不成立，下一次启动又查云端、又弹一次窗，用户永远建不出这条档案。界面那只
     // "打开同步"的开关会顺手清掉上一次的结论，所以先把开关打开再答。
-    machine_b.rpc("game.update", json!({ "id": "my-copy", "sync_enabled": true }));
+    machine_b.rpc(
+        "game.update",
+        json!({ "id": "my-copy", "sync_enabled": true }),
+    );
     machine_b.rpc("sync.resolve", json!({ "id": "my-copy", "choice": "pair" }));
     let written = std::fs::read_to_string(machine_b.config.clone()).unwrap();
     let conclusion = written
