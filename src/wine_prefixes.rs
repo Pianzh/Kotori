@@ -20,6 +20,8 @@
 //! 正是想要的,在 `daemon.shutdown`(设置页的「停止服务」)那一刻就不是了 ——
 //! 那两个出口分得很清(ADR-002 / ADR-017),这里跟它们保持一致。
 
+// ⚠ 只有 `record_at` 用它写名单，而那条路是 unix-only（见下面）。
+#[cfg(unix)]
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};

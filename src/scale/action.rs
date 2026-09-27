@@ -2,6 +2,8 @@
 //!
 //! Split out of `mod.rs`, which had grown into everything the scaling engine
 //! touches at once: this is the part the CLI and the GUI both name.
+// ⚠ 只有 gamescope 那条路用它 —— 下面那些阶梯算术都 `#[cfg(unix)]` 了。
+#[cfg(unix)]
 use crate::config::ScaleProfile;
 
 /// One runtime scaling action — what the CLI and the GUI both ask for.

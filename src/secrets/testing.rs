@@ -2,7 +2,10 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{Keyring, SecretKey};
+use super::Keyring;
+// ⚠ `SecretKey` 只有 unix 侧那几个假 `secret-tool` 夹具用得到（见下面的 `stored`）。
+#[cfg(unix)]
+use super::SecretKey;
 
 /// Argument every fake helper answers with an immediate, side-effect-free
 /// exit. Used by [`write_executable`].
