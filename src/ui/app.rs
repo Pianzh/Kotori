@@ -3,6 +3,12 @@
 
 use super::*;
 
+/// 顶部错误条默认挂多久（用户 2026-09-27 定：3 秒）。
+///
+/// ⚠ 别用"某条后台回包顺手 `error = None`"来收尾：保存失败后面紧跟着一次列表刷新
+/// （`GamesLoaded`），那样提示 0.2 秒就被吃掉 —— 用户报的"顶部错误条一闪就没"。
+pub(in crate::ui) const ERROR_VISIBLE: std::time::Duration = std::time::Duration::from_secs(3);
+
 pub struct App {
     pub(super) tab: Tab,
     pub(super) games: Vec<UiGame>,
@@ -14,6 +20,9 @@ pub struct App {
     pub(super) daemon_connected: Option<bool>,
     pub(super) loading: bool,
     pub(super) error: Option<String>,
+    /// 错误条的世代号：每设一条 +1，"3 秒后清除"那个定时器醒来发现号变了就作废
+    /// —— 同一类错误连发两次时，旧的定时器不许把新的那条清掉。
+    pub(super) error_generation: u64,
     pub(super) launching: Option<String>,
     /// 启动前那一问正等着回答的那一款（`None` = 没在问）。
     pub(super) sync_ask: Option<String>,
@@ -137,6 +146,7 @@ impl App {
                 daemon_connected: None,
                 loading: false,
                 error: None,
+                error_generation: 0,
                 launching: None,
                 selected: None,
                 draft: None,
@@ -294,6 +304,23 @@ impl App {
         Task::perform(
             async move { save_profile(draft, scope).await },
             move |result| Message::ProfileSaved(generation, result),
+        )
+    }
+
+    /// 设一条顶部错误，并安排它在 [`ERROR_VISIBLE`] 之后自己消失。
+    ///
+    /// ⚠ **必须把返回的 Task 交回去**（Slint 的 Task 只有被返回/合批才会跑）：调用处
+    /// 若只写 `self.set_error(..)` 而丢掉返回值，那条错误就永远不会自己消失了。
+    pub(super) fn set_error(&mut self, message: impl Into<String>) -> Task<Message> {
+        self.error = Some(message.into());
+        self.error_generation += 1;
+        let generation = self.error_generation;
+        Task::perform(
+            async move {
+                tokio::time::sleep(ERROR_VISIBLE).await;
+                generation
+            },
+            Message::ClearError,
         )
     }
 

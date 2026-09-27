@@ -142,6 +142,8 @@ pub enum Message {
     /// 那时得拿手上的草稿再存一次,否则配置里留着的是一个用户已经不要的值。
     /// **写的是哪一组问 `App::save_in_flight`**(那一笔自己记着),回包里不用再带。
     ProfileSaved(u64, Result<(), String>),
+    /// `App::set_error` 挂的那个"3 秒到了"的定时器：世代号对得上才清。
+    ClearError(u64),
     /// 「重置」:回到已保存的设置(没有保存按钮之后,这是填错值的唯一退路)。
     ResetProfile,
     DeleteRequested,

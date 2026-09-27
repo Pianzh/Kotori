@@ -82,29 +82,34 @@ impl App {
                 self.daemon_connected = Some(true);
                 // 连上了就是连上了 —— 无论它是我们拉起来的还是用户从别处起的。
                 self.daemon_paused = false;
-                self.error = None;
+                // ⚠ 这里**不许**清错误条：保存失败之后紧跟着就是这一次刷新，从前那句
+                // `self.error = None` 会把刚弹出来的提示在 0.2 秒内吃掉（用户 2026-09-27
+                // 报的"顶部错误条一闪就没"）。现在统一由 `set_error` 的 3 秒定时器收尾。
                 self.retry_attempts = 0;
                 Task::none()
             }
             Message::GamesLoaded(Err(e)) => {
                 self.loading = false;
                 self.daemon_connected = Some(false);
-                self.error = Some(e);
+                let error_task = self.set_error(e);
                 // 用户亲手停掉的服务不该被退避重试一次次拉起来(那才叫"停不掉")。
                 if self.daemon_paused {
                     self.retry_attempts = 0;
-                    return Task::none();
+                    return error_task;
                 }
                 // Self-heal: keep retrying with backoff, so the UI recovers on
                 // its own once the daemon is back.
                 self.retry_attempts = self.retry_attempts.saturating_add(1);
                 if self.retry_attempts <= MAX_AUTO_RETRIES {
                     let delay = retry_delay(self.retry_attempts);
-                    return Task::perform(async move { tokio::time::sleep(delay).await }, |_| {
-                        Message::Refresh
-                    });
+                    return Task::batch([
+                        error_task,
+                        Task::perform(async move { tokio::time::sleep(delay).await }, |_| {
+                            Message::Refresh
+                        }),
+                    ]);
                 }
-                Task::none()
+                error_task
             }
             // 一颗按钮两种时候:该启动还是该停由 `run_action` 说了算(文案也从同一
             // 份会话表来,所以两者不可能再说两套话)。
@@ -137,14 +142,13 @@ impl App {
                         tracing::info!("game session started: {sid}");
                         self.error = None;
                         let socket = self.daemon_socket.clone();
-                        return Task::perform(
+                        Task::perform(
                             async move { load_status(&socket).await },
                             Message::StatusLoaded,
-                        );
+                        )
                     }
-                    Err(e) => self.error = Some(e),
+                    Err(e) => self.set_error(e),
                 }
-                Task::none()
             }
             Message::GameSelected(id) => {
                 // 换款之前把上一款那笔编辑交出去：防抖窗口里挂着的那一次会被这一笔
@@ -241,21 +245,18 @@ impl App {
                     Message::Deleted,
                 )
             }
-            Message::Deleted(result) => {
-                match result {
-                    Ok(()) => {
-                        self.selected = None;
-                        self.draft = None;
-                        self.versions.closed();
-                        self.error = None;
-                        return Task::perform(async { connect_and_load().await }, |r| {
-                            Message::GamesLoaded(r)
-                        });
-                    }
-                    Err(e) => self.error = Some(e),
+            Message::Deleted(result) => match result {
+                Ok(()) => {
+                    self.selected = None;
+                    self.draft = None;
+                    self.versions.closed();
+                    self.error = None;
+                    Task::perform(async { connect_and_load().await }, |r| {
+                        Message::GamesLoaded(r)
+                    })
                 }
-                Task::none()
-            }
+                Err(e) => self.set_error(e),
+            },
             m @ (Message::NewNameChanged(..)
             | Message::NewGameDirChanged(..)
             | Message::NewExeChanged(..)
@@ -360,14 +361,18 @@ impl App {
             // 两处挨着改，不会漏）。
             m if is_settings_message(&m) => self.update_settings(m),
             Message::StopDone(result) => {
-                if let Err(e) = result {
-                    self.error = Some(e);
-                }
+                let error_task = match result {
+                    Err(e) => self.set_error(e),
+                    Ok(()) => Task::none(),
+                };
                 let socket = self.daemon_socket.clone();
-                Task::perform(
-                    async move { load_status(&socket).await },
-                    Message::StatusLoaded,
-                )
+                Task::batch([
+                    error_task,
+                    Task::perform(
+                        async move { load_status(&socket).await },
+                        Message::StatusLoaded,
+                    ),
+                ])
             }
             Message::SyncAskAnswered(choice) => self.sync_ask_answered(choice),
             // 「改配对…」：收起这一问、打开云端清单（挑完接着启动，见 `update/run.rs`）。
@@ -386,6 +391,13 @@ impl App {
                 self.begin_auto_save()
             }
             Message::SaveGroup(scope) => self.begin_save(scope),
+            Message::ClearError(generation) => {
+                // 世代号对不上说明这 3 秒里又冒出一条新的错误，别把新的那条清掉。
+                if generation == self.error_generation {
+                    self.error = None;
+                }
+                Task::none()
+            }
             Message::ProfileSaved(generation, result) => self.profile_saved(generation, result),
             Message::ResetProfile => self.reset_profile(),
             Message::PickerProbed(result) => {
@@ -420,8 +432,7 @@ impl App {
                         //    真机上点一次叉号就把「浏览…」永久灰掉了(用户 2026-09-13 报的),
                         //    原因正是这里曾把它写成 `Some(Err(e))`。
                         tracing::warn!("打开文件选择框失败：{e}");
-                        self.error = Some(format!("打开文件选择框失败：{e}"));
-                        Task::none()
+                        self.set_error(format!("打开文件选择框失败：{e}"))
                     }
                     Ok(Some(path)) => self.apply_picked_path(target, &path),
                 }

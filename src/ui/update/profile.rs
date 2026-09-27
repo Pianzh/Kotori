@@ -108,6 +108,8 @@ impl App {
         // 否则会把别人的 `*_original` 写成这个游戏的值。
         let same_game = self.selected.as_deref() == Some(attempt.draft.game_id.as_str());
 
+        // 失败那条要挂 `set_error` 的 3 秒定时器，它是个 Task，得一路带回返回值。
+        let mut error_task = Task::none();
         match &result {
             Ok(()) => {
                 if same_game {
@@ -146,7 +148,7 @@ impl App {
                 // 底部动作区那行小字离触发它的那颗按钮隔着一整页(「保存路径」在页面中部,
                 // 那行字在整页最底部),而像"游戏目录不存在: /mnt/f1/…"这种拒绝只在那儿
                 // 出现一次 —— 页面上等于没有提示。同一款上仍然在底部留一句,两处都看得见。
-                self.error = Some(format!("保存失败: {e}"));
+                error_task = self.set_error(format!("保存失败: {e}"));
                 if same_game {
                     self.report_saved(format!("保存失败: {e}"), false);
                 }
@@ -162,15 +164,18 @@ impl App {
         // ⚠ **只有自动那一族才补发**:路径与存档位置是按钮驱动的,补发等于又把它
         // 变回自动保存(用户 2026-09-25 明确不要那个)。
         if scope == SaveScope::Auto && generation != self.autosave_generation {
-            return self.begin_auto_save();
+            return Task::batch([error_task, self.begin_auto_save()]);
         }
         // 存完把库读一遍:列表与"已存值"要跟上,否则退出这一页再进来看到的是旧的。
         // 页面自己的副本不会被它重置(种子没动,见 game-settings.slint)。
         let socket = self.daemon_socket.clone();
-        Task::perform(
-            async move { load_games_from(&socket).await },
-            Message::GamesLoaded,
-        )
+        Task::batch([
+            error_task,
+            Task::perform(
+                async move { load_games_from(&socket).await },
+                Message::GamesLoaded,
+            ),
+        ])
     }
 
     /// 「重置」：作废挂在防抖窗口里的那一笔，再按「已存值」把页面铺一遍。

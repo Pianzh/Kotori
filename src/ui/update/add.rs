@@ -213,6 +213,7 @@ impl App {
             }
             Message::CreateFinished(result) => {
                 self.creating = false;
+                // 失败也要挂 3 秒定时器（见 `App::set_error`）—— 它就是下面 match 的值。
                 match result {
                     Ok((id, warning)) => {
                         // 重复 exe 不挡添加,但要让用户看到那三条隐患(云端版本
@@ -258,11 +259,10 @@ impl App {
                                 Message::GamePaired,
                             ));
                         }
-                        return Task::batch(tasks);
+                        Task::batch(tasks)
                     }
-                    Err(e) => self.error = Some(e),
+                    Err(e) => self.set_error(e),
                 }
-                Task::none()
             }
             _ => unreachable!("update_add 只接添加游戏那批消息"),
         }

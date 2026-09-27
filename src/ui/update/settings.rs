@@ -102,6 +102,7 @@ impl App {
                 Task::none()
             }
             Message::WineStatusLoaded(result) => {
+                let mut error_task = Task::none();
                 match result {
                     Ok(status) => {
                         // Do not clobber an edit that is still in progress: this
@@ -111,9 +112,9 @@ impl App {
                         }
                         self.wine_status = Some(status);
                     }
-                    Err(e) => self.error = Some(e),
+                    Err(e) => error_task = self.set_error(e),
                 }
-                Task::none()
+                error_task
             }
             Message::WinePrefixChanged(value) => {
                 self.wine_prefix_input = value;
@@ -145,13 +146,18 @@ impl App {
                 if result.is_ok() {
                     // The daemon holds it now, so a reload may refill the field.
                     self.wine_prefix_dirty = false;
-                } else if let Err(e) = &result {
-                    self.error = Some(e.clone());
                 }
-                Task::perform(
-                    async { load_wine_status().await },
-                    Message::WineStatusLoaded,
-                )
+                let error_task = match &result {
+                    Err(e) => self.set_error(e.clone()),
+                    Ok(()) => Task::none(),
+                };
+                Task::batch([
+                    error_task,
+                    Task::perform(
+                        async { load_wine_status().await },
+                        Message::WineStatusLoaded,
+                    ),
+                ])
             }
             Message::DirectLaunchToggled(value) => {
                 if let Some(draft) = &mut self.draft {
