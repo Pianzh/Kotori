@@ -68,9 +68,11 @@ impl Daemon {
                 // 一次 —— 2026-09-20 实测到的"一轮里开出两个会话"就是这么来的。
                 //
                 // 记的是 **exe 完整路径**而不是名字:两款游戏即使同名(`Game.exe`),
-                // 路径不同就是两个进程,谁也不该挡谁;只有"两条档案指着同一个 exe"
-                // (旧配置,`game.create` 现在会挡住新的)才会撞上,那时按 id 排序取
-                // 第一个。
+                // 路径不同就是两个进程,谁也不该挡谁;只有"两条档案指着同一个 exe"才会
+                // 撞上,那时按 id 排序取第一个。
+                // ⚠ 那种配置 2026-09-27 起只能来自手改配置文件 —— `game.create` 与
+                // `game.update` 都硬拒绝了(两条 e2e 钉着),所以这一段是纯防御,
+                // e2e 造不出来(见 `tests/ipc_e2e/watch.rs` 那条测试的说明)。
                 let mut claimed: Vec<PathBuf> = live
                     .iter()
                     .filter_map(|session| session.exe_path.clone())

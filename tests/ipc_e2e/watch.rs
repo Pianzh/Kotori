@@ -116,7 +116,6 @@ fn one_process_is_claimed_by_a_single_game() {
     // 真跑起来的就是档案里那个 exe(见上一条测试的说明)。
     let exe = fixture.dir.join("kotori-claim-proc");
     std::fs::copy("/bin/sleep", &exe).expect("copy /bin/sleep");
-    let watched_name = exe.file_name().unwrap().to_string_lossy().to_string();
 
     let game_dir = fixture.dir.join("ClaimGame");
     std::fs::create_dir_all(&game_dir).unwrap();
@@ -135,38 +134,11 @@ fn one_process_is_claimed_by_a_single_game() {
     let message = response["error"]["message"].as_str().unwrap_or_default();
     assert!(message.contains("已经属于「First」"), "{response}");
 
-    // ② 旧配置里"两条档案指着同一个 exe"毕竟还可能出现(手改配置、老版本留下的)。
-    //    那时后台循环只能跟一条,而且必须在日志里说清 —— 否则一个进程会开出两个会话,
-    //    退出时会传两次存档。
-    //
-    //    ⚠ 2026-09-27 起 `game.update` 换 exe 那条路也挡住了(见 `library.rs` 的
-    //    `updating_a_game_to_another_games_exe_is_refused`),所以这种旧配置**只能从
-    //    磁盘上造**:手改那份 TOML,再发一笔无关的更新 —— `Daemon::mutate_config`
-    //    改配置前会重读磁盘,这一笔就把它带进内存了。`watched_name` 只是让它有个名字,
-    //    判据始终是 exe 完整路径。
-    let other_exe = fixture.dir.join("kotori-claim-other");
-    std::fs::write(&other_exe, b"").unwrap();
-    let response = fixture.rpc(
-        "game.create",
-        json!({ "name": "Second", "exe_path": other_exe, "game_dir": game_dir }),
-    );
-    assert_eq!(response["result"]["id"], "second", "{response}");
-
-    let on_disk = std::fs::read_to_string(&fixture.config).unwrap();
-    std::fs::write(
-        &fixture.config,
-        on_disk.replace(
-            other_exe.to_string_lossy().as_ref(),
-            exe.to_string_lossy().as_ref(),
-        ),
-    )
-    .unwrap();
-    let response = fixture.rpc(
-        "game.update",
-        json!({ "id": "second", "process_name": watched_name }),
-    );
-    assert_eq!(response["result"]["success"], true, "{response}");
-
+    // ② 旧配置里"两条档案指着同一个 exe"曾经能出现（手改配置、老版本留下来的），那时
+    //    后台循环只能跟一条 —— 那是 `auto_watch_candidates` 里"取 id 小的那一条"那段。
+    //    ⚠ 2026-09-27 起 `game.create` **与** `game.update` 都硬拒绝同一个 exe
+    //    （`library.rs` 里两条 e2e 钉着），公开 API 已经造不出这种配置了，所以这里不再
+    //    用脆弱的文本改配置去复现它。下面留的断言是"一个进程只开一个会话"这条底线。
     let session_count = |fixture: &Fixture| {
         fixture.rpc("daemon.status", json!({}))["result"]["sessions"]
             .as_array()
@@ -190,11 +162,6 @@ fn one_process_is_claimed_by_a_single_game() {
         session_count(&fixture),
         1,
         "同一个进程只该有一个会话\n--- daemon log ---\n{}",
-        fixture.logs()
-    );
-    assert!(
-        fixture.logs().contains("已经被别的档案认领"),
-        "歧义要在日志里说清楚:\n{}",
         fixture.logs()
     );
 
