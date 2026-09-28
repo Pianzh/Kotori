@@ -12,7 +12,9 @@ pub(in crate::ui) fn matches_query(game: &UiGame, query: &str) -> bool {
     if query.is_empty() {
         return true;
     }
-    game.name.to_lowercase().contains(&query) || game.exe.to_lowercase().contains(&query)
+    game.name.to_lowercase().contains(&query)
+        || game.exe.to_lowercase().contains(&query)
+        || matches_pinyin(&game.name, &query)
 }
 
 /// 读一条挂载引用。`disk` 是身份：它没写就当"没有引用"（只有相对目录没有意义）。

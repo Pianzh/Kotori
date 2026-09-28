@@ -8,6 +8,7 @@
 //! 扫描云端」——那才是读所有卡的那条慢路。
 
 use super::confirm::Confirmation;
+use crate::ui::matches_pinyin;
 
 /// 云端的一款游戏（`sync.cloud_list` 的一行）。
 ///
@@ -76,6 +77,7 @@ impl CloudGameRow {
         }
         self.name.to_lowercase().contains(&needle)
             || self.cloud_key.to_lowercase().contains(&needle)
+            || matches_pinyin(&self.name, &needle)
             || self
                 .exe_paths
                 .iter()

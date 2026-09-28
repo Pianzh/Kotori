@@ -6,6 +6,8 @@
 //! 候选是**打开时取的那一份快照**:过滤在内存里做。每敲一个字都去问一次 daemon 太吵,
 //! 而进程表本来就是"当时那一瞬"的东西。
 
+use crate::ui::matches_pinyin;
+
 /// 浮层里的一行(与 `.slint` 的 `ProcessPickRow` 一一对应)。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProcessRow {
@@ -29,6 +31,8 @@ impl ProcessRow {
             || self.title.to_lowercase().contains(&query)
             || self.exe.to_lowercase().contains(&query)
             || self.pid.to_string().contains(&query)
+            || matches_pinyin(&self.name, &query)
+            || matches_pinyin(&self.title, &query)
     }
 }
 
