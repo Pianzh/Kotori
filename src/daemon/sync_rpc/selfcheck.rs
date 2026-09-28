@@ -19,13 +19,29 @@ impl Daemon {
 
     /// 自检。**只有 `Ask` 会打断用户**（见 `sync::selfcheck`）。
     pub(in crate::daemon) async fn sync_selfcheck(&self, game_id: &str) -> Decision {
-        let (game, signature) = {
+        let (mut game, signature) = {
             let config = self.config.read().await;
             let Some(game) = config.games.get(game_id).cloned() else {
                 return Decision::Skip;
             };
             (game, signature::of(&config.sync))
         };
+
+        // ⚠ **先补一次指纹**（用户 2026-09-28 在 Windows 上报的"明明一模一样的 exe 却没
+        // 自动匹配，连疑似都没有"）：`needs_cloud` 的第一条判据就是"本机有指纹"，而补指纹
+        // 从前只发生在"配对扫描前"与"上传时" —— 于是点「启动」的自检在本机没指纹时**干脆
+        // 不查云端**，直接判"认不出"，界面只会说"云端没有对得上的"，可云端明明有一条。
+        // 那条档案建在指纹功能落地之前（09-21），此后一直没人问过它指纹。
+        //
+        // 算不出（盘没插、文件不在）**绝不拦启动**：照旧往下走"问一次"，让用户自己挑
+        // —— 自检的规矩是"只有一种情况会打断用户"，而"读不到 exe"不在那一种里。
+        if game.exe_fingerprint.is_none() {
+            self.ensure_fingerprint(game_id).await.ok();
+            let refreshed = self.config.read().await.games.get(game_id).cloned();
+            if let Some(refreshed) = refreshed {
+                game.exe_fingerprint = refreshed.exe_fingerprint;
+            }
+        }
 
         // 已确认、开关关着、没指纹、没目标：都不用去云端。
         if !crate::sync::selfcheck::needs_cloud(&game, signature.as_deref()) {

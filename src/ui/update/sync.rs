@@ -422,11 +422,20 @@ impl App {
             }
             Message::SyncNowDone(result) => {
                 self.sync_form.busy = false;
-                self.sync_form.msg = Some(match result {
-                    Ok(summary) => summary,
-                    Err(e) => format!("同步失败: {e}"),
-                });
-                self.reload_sync()
+                match result {
+                    Ok(summary) => {
+                        self.sync_form.msg = Some(summary);
+                        self.reload_sync()
+                    }
+                    // ⚠ 失败**必须挂顶部横幅**（用户 2026-09-28："算不了直接横幅报错"）：
+                    // 表单里那行小字常常在一屏之外，同步失败时他根本看不见 —— 而"上传必须
+                    // 带指纹"这类拒绝正是从这里冒出来的（见 `sync_rpc::pack_identity`）。
+                    Err(error) => {
+                        let message = format!("同步失败: {error}");
+                        self.sync_form.msg = Some(message.clone());
+                        Task::batch([self.set_error(message), self.reload_sync()])
+                    }
+                }
             }
             Message::SyncRestoreRequested(game_id, version) => {
                 self.sync_restore_pending = Some((game_id, version));

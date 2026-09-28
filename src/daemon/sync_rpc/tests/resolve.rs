@@ -243,6 +243,74 @@ async fn a_cloud_that_cannot_be_read_says_so_instead_of_claiming_nothing_is_ther
     }
 }
 
+/// **点启动之前先把缺的指纹补上**（用户 2026-09-28 在 Windows 上报的"明明是一模一样的
+/// exe，却没有自动匹配，甚至连疑似匹配都没有"）。
+///
+/// 那边那条档案建在指纹功能落地之前（09-21），而补指纹从前只发生在"配对扫描前"与
+/// "上传时" —— 于是自检在本机没指纹时**干脆不查云端**、直接判"认不出"，界面只会说
+/// "云端没有对得上的"，可云端明明有一条一模一样的。
+#[tokio::test]
+async fn the_selfcheck_fills_a_missing_fingerprint_before_asking_the_cloud() {
+    let (daemon, _) = daemon_at(Keyring::memory());
+    // 夹具里那条路径不存在（算不出指纹），所以给这一款一个**真的存在**的 exe。
+    let dir = std::env::temp_dir().join(format!(
+        "kotori-selfcheck-fingerprint-{}-{}",
+        std::process::id(),
+        uuid::Uuid::new_v4()
+    ));
+    std::fs::create_dir_all(&dir).unwrap();
+    let exe = dir.join("game.exe");
+    std::fs::write(&exe, b"pretend this is a game").unwrap();
+    let expected = crate::sync::fingerprint::of_file(&exe).unwrap();
+    {
+        let mut config = daemon.config.write().await;
+        config.games.get_mut("demo").unwrap().exe_path = exe.clone();
+    }
+
+    // 自检走到哪一步不重要（夹具里云端读不到）；这里要钉的是**指纹被补上了**。
+    let _ = daemon.sync_selfcheck("demo").await;
+
+    let filled = daemon
+        .config
+        .read()
+        .await
+        .games
+        .get("demo")
+        .and_then(|game| game.exe_fingerprint.clone());
+    assert_eq!(
+        filled.as_deref(),
+        Some(expected.as_str()),
+        "点启动就该把缺的指纹补上并落盘，否则指纹判据根本不参与"
+    );
+
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// **没有指纹就不许上传**（用户 2026-09-28："从现在开始，上传必须带指纹，不允许没有指纹
+/// 的存档"）。
+///
+/// 指纹在上传前会现场算一次（`machine_identity_of` → `ensure_fingerprint`），所以走到闸门
+/// 还空着只可能是 exe 读不到 —— 那时我们不知道自己在传哪一款，宁可拦住。自动上传与手动
+/// 「立即同步」都走 `pack_identity`，这一条钉的就是两条路共用的那道闸门。
+#[cfg(unix)]
+#[tokio::test]
+async fn uploading_without_a_fingerprint_is_refused() {
+    use crate::sync::runner::testing::FakeRclone;
+
+    let fake = FakeRclone::new("no-fingerprint");
+    let (daemon, _) = daemon_at(Keyring::memory());
+    let runner = fake.runner(0);
+
+    // 夹具里 `demo` 的 exe 路径不存在 ⇒ 现场也算不出指纹。
+    let error = match daemon.pack_identity(&runner, "demo", "Demo", &[]).await {
+        Ok(_) => panic!("没有指纹就不该让它上传"),
+        Err(error) => error,
+    };
+    assert!(error.contains("算不出可执行文件的指纹"), "{error}");
+
+    std::fs::remove_dir_all(&fake.dir).ok();
+}
+
 #[tokio::test]
 async fn repeating_the_same_pair_is_idempotent() {
     let (daemon, path) = daemon_at(Keyring::memory());

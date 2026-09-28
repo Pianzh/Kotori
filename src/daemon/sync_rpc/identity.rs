@@ -145,8 +145,8 @@ impl Daemon {
 
     /// 上传这一版要写进包里的身份。
     ///
-    /// 顺序是有讲究的：**指纹先算**（没有指纹就没法在云端认出同一款），然后才是
-    /// "这一款在云端是谁"（本地认领过就用，否则按指纹找，找不到就新建），最后把
+    /// 顺序是有讲究的：**指纹先算**（没有指纹就没法在云端认出同一款,也不许上传 —— 见下），
+    /// 然后才是"这一款在云端是谁"（本地认领过就用，否则按指纹找，找不到就新建），最后把
     /// 自己这台机器的信息并进身份卡写回云端。
     pub(super) async fn pack_identity(
         &self,
@@ -158,6 +158,19 @@ impl Daemon {
         let local = self.cloud_id_of(game_id).await?;
         let local_key = self.cloud_key_of(game_id).await?;
         let machine = self.machine_identity_of(game_id).await?;
+
+        // ⚠ **没有指纹就不许上传**（用户 2026-09-28："从现在开始，上传必须带指纹，不允许
+        // 没有指纹的存档"）。指纹刚刚现场算过一次（`machine_identity_of` →
+        // `ensure_fingerprint`），所以走到这里还空着只可能是 exe 读不到：盘没插、文件被移走、
+        // 没权限。那时我们**不知道自己在传哪一款**，宁可拦住。
+        //
+        // 自动上传（退出后）与手动「立即同步」都走这一个函数,所以闸门只需要一道 ——
+        // 手动那条路从这里冒出去的错误会在界面上挂成横幅（见 `ui/update/sync.rs`）。
+        if machine.fingerprints.is_empty() {
+            return Err(format!(
+                "{game_id}: 算不出可执行文件的指纹，不能上传 —— 检查游戏盘在不在、文件还在不在"
+            ));
+        }
 
         let resolved = runner
             .resolve_identity(game_id, name, local.as_deref(), machine.clone())
@@ -196,9 +209,14 @@ impl Daemon {
 
     /// 这一款 exe 的指纹；缺了就当场算一次并落盘（读不到就如实返回 `None`）。
     ///
-    /// 这是"按需补齐"的单条版本：配对扫描前会把整个库补齐（`fill_fingerprints`），
-    /// 而上传这条路自己也得保证手上有指纹，否则第一次上传就认不出云端已有的那一款。
-    async fn ensure_fingerprint(&self, game_id: &str) -> Result<Option<String>, String> {
+    /// 这是"按需补齐"的单条版本：点「启动」的自检（`sync_selfcheck`）与上传前都会问它一声。
+    /// ⚠ 从前的调用点只有"配对扫描前"与"上传时"，于是**点启动时本机没指纹就干脆不去查
+    /// 云端**，界面只会说"云端没有对得上的" —— 用户 2026-09-28 在 Windows 上踩的就是这个
+    /// （那条档案建在指纹功能落地之前，此后一直没有指纹）。
+    pub(in crate::daemon) async fn ensure_fingerprint(
+        &self,
+        game_id: &str,
+    ) -> Result<Option<String>, String> {
         let (known, exe) = {
             let config = self.config.read().await;
             let game = config
@@ -211,6 +229,9 @@ impl Daemon {
             return Ok(Some(fingerprint));
         }
         let Ok(exe) = exe else {
+            // 解析不出来也要留痕：查"这一款为什么没有指纹"时，这一行就是答案（从前这里是
+            // 一声不吭的 `return Ok(None)`）。
+            tracing::warn!("{game_id}: 解析不出 exe 的位置，算不了指纹");
             return Ok(None);
         };
         let Some(fingerprint) = crate::sync::fingerprint::of_file(&exe) else {

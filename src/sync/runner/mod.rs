@@ -40,8 +40,11 @@ mod restore;
 mod staging;
 // 假 rclone 夹具是 shell 脚本,只在 Unix 上能跑(spawn 在 Windows 报 os error
 // 193);runner 的测试因此整体 Unix 限定,Windows 覆盖等有 Windows 版假货再补。
+//
+// `pub(crate)` 是给 `daemon::sync_rpc` 的测试用的:那边要验"没有指纹就不许上传"
+// (`pack_identity`),而那道闸门只有配上 runner 才问得出来。只在 `test` 下存在。
 #[cfg(all(test, unix))]
-mod testing;
+pub(crate) mod testing;
 // 索引的测试也全靠那个假 rclone，所以同样 Unix 限定。
 #[cfg(all(test, unix))]
 mod index_tests;

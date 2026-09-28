@@ -430,6 +430,30 @@ fn an_inferred_mount_lands_in_the_draft_without_saving() {
     assert!(app.save_in_flight.is_none(), "但不许自己写下去");
 }
 
+/// **同步失败要挂顶部横幅**（用户 2026-09-28："算不了直接横幅报错"）。
+///
+/// 表单里那行小字常常在一屏之外：手动「立即同步」被拒时（例如"算不出可执行文件的指纹，
+/// 不能上传"），用户当时根本看不见，只会觉得"点了没反应"。
+#[test]
+fn a_failed_sync_raises_the_top_banner() {
+    let (mut app, _task) = App::new();
+    assert!(app.error.is_none());
+
+    app.update(Message::SyncNowDone(Err(
+        "算不出可执行文件的指纹，不能上传 —— 检查游戏盘在不在、文件还在不在".into(),
+    )));
+
+    let error = app.error.as_deref().unwrap_or_default();
+    assert!(error.contains("算不出可执行文件的指纹"), "{error}");
+    assert!(
+        app.sync_form
+            .msg
+            .as_deref()
+            .is_some_and(|m| m.contains("同步失败")),
+        "表单里那一行也照旧留着：横幅 3 秒就走，详情得有个落处"
+    );
+}
+
 /// 底部那条状态栏：**正在做什么**要挂上去、收尾要摘掉并记下"刚做完什么"。
 ///
 /// 用户 2026-09-28 要它"方便查错" —— 他碰上的是"退出后没有自动上传，手动上传要半分钟"，
