@@ -57,7 +57,11 @@ impl App {
             Message::ServiceStart => {
                 self.service_busy = true;
                 self.service_msg = None;
-                Task::perform(async { start_daemon().await }, Message::ServiceStarted)
+                self.activity(
+                    "启动后台服务",
+                    async { start_daemon().await },
+                    Message::ServiceStarted,
+                )
             }
             Message::ServiceStarted(result) => {
                 self.service_busy = false;
@@ -67,7 +71,11 @@ impl App {
                         self.service_msg = Some(message);
                         // 起来了就把库重新读一遍(顺便把连接状态摆正)。
                         self.retry_attempts = 0;
-                        Task::perform(async { connect_and_load().await }, Message::GamesLoaded)
+                        self.activity(
+                            "重新连接后台服务",
+                            async { connect_and_load().await },
+                            Message::GamesLoaded,
+                        )
                     }
                     Err(e) => {
                         self.service_msg = Some(format!("启动失败: {e}"));
@@ -80,7 +88,11 @@ impl App {
                 self.daemon_paused = true;
                 self.service_busy = true;
                 self.service_msg = None;
-                Task::perform(async { stop_daemon().await }, Message::ServiceStopped)
+                self.activity(
+                    "停止后台服务",
+                    async { stop_daemon().await },
+                    Message::ServiceStopped,
+                )
             }
             Message::ServiceStopped(result) => {
                 self.service_busy = false;
@@ -125,7 +137,8 @@ impl App {
                 let prefix = self.wine_prefix_input.trim().to_string();
                 self.wine_msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "保存 wine 前缀",
                     async move { set_wine_prefix(&socket, Some(prefix)).await },
                     Message::WinePrefixSaved,
                 )
@@ -133,7 +146,8 @@ impl App {
             Message::ClearWinePrefix => {
                 self.wine_msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "清除 wine 前缀",
                     async move { set_wine_prefix(&socket, None).await },
                     Message::WinePrefixSaved,
                 )
@@ -153,7 +167,8 @@ impl App {
                 };
                 Task::batch([
                     error_task,
-                    Task::perform(
+                    self.activity(
+                        "探测 wine",
                         async { load_wine_status().await },
                         Message::WineStatusLoaded,
                     ),
@@ -322,7 +337,8 @@ impl App {
                 self.config_switching = true;
                 self.config_msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "切换配置来源",
                     async move { set_config_source(&socket, portable).await },
                     Message::ConfigSourceSwitched,
                 )
@@ -343,7 +359,8 @@ impl App {
                 }
                 Task::none()
             }
-            Message::EnvironmentReload => Task::perform(
+            Message::EnvironmentReload => self.activity(
+                "检查运行环境",
                 async { load_environment().await },
                 Message::EnvironmentLoaded,
             ),

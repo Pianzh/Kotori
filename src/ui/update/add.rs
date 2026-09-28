@@ -65,7 +65,8 @@ impl App {
                 self.add_match.asking(&exe);
                 let socket = self.daemon_socket.clone();
                 let asked = exe.clone();
-                Task::perform(
+                self.activity(
+                    "问云端有没有这一款",
                     async move { match_exe(&socket, asked).await },
                     move |result| Message::MatchLoaded(exe, result),
                 )
@@ -96,7 +97,8 @@ impl App {
             Message::CloudPickOpen(purpose) => {
                 self.cloud_pick.open(purpose);
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "拉取云端清单",
                     async move { cloud_list(&socket, false).await },
                     Message::CloudPickLoaded,
                 )
@@ -204,7 +206,8 @@ impl App {
                 self.create_msg = None;
                 self.error = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "建立档案",
                     async move {
                         create_game(&socket, name, exe, game_dir, &dir_mount, &exe_mount).await
                     },
@@ -243,10 +246,11 @@ impl App {
                         self.auto_filled_name.clear();
                         self.add_match.reset();
 
-                        let mut tasks =
-                            vec![Task::perform(async { connect_and_load().await }, |r| {
-                                Message::GamesLoaded(r)
-                            })];
+                        let mut tasks = vec![self.activity(
+                            "重新载入游戏库",
+                            async { connect_and_load().await },
+                            Message::GamesLoaded,
+                        )];
                         if let Some((cloud_key, cloud_id, cloud_name)) = binding {
                             // 用户在本页看到的那一条:添加之后顺手认领(见 `sync.pair`)。
                             // 认领失败**不影响**上面那句"已添加"。
@@ -254,7 +258,8 @@ impl App {
                             self.create_msg =
                                 Some(format!("{message}\n正在与云端《{cloud_name}》绑定…"));
                             let socket = self.daemon_socket.clone();
-                            tasks.push(Task::perform(
+                            tasks.push(self.activity(
+                                "绑定云端身份",
                                 async move { pair_game(&socket, id, cloud_key, cloud_id).await },
                                 Message::GamePaired,
                             ));

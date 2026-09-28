@@ -41,7 +41,8 @@ impl App {
                     // Re-read them all, they may have changed on disk (or in the
                     // daemon, which is the only writer).
                     let mut tasks = vec![
-                        Task::perform(
+                        self.activity(
+                            "探测 wine",
                             async { load_wine_status().await },
                             Message::WineStatusLoaded,
                         ),
@@ -51,7 +52,8 @@ impl App {
                     ];
                     // 环境检查只在设置页问:它会真去跑几个外部程序(见 `platform`)。
                     if tab == Tab::Settings {
-                        tasks.push(Task::perform(
+                        tasks.push(self.activity(
+                            "检查运行环境",
                             async { load_environment().await },
                             Message::EnvironmentLoaded,
                         ));
@@ -71,9 +73,17 @@ impl App {
                 self.loading = true;
                 // 后台服务是用户自己停的:刷新只看看它在不在,不许顺手把它拉起来。
                 if self.daemon_paused {
-                    Task::perform(async { load_without_booting().await }, Message::GamesLoaded)
+                    self.activity(
+                        "重新载入游戏库",
+                        async { load_without_booting().await },
+                        Message::GamesLoaded,
+                    )
                 } else {
-                    Task::perform(async { connect_and_load().await }, Message::GamesLoaded)
+                    self.activity(
+                        "重新载入游戏库",
+                        async { connect_and_load().await },
+                        Message::GamesLoaded,
+                    )
                 }
             }
             Message::GamesLoaded(Ok(games)) => {
@@ -250,7 +260,8 @@ impl App {
                 };
                 self.confirm_delete = false;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "删除档案",
                     async move { remove_game(&socket, &game_id).await },
                     Message::Deleted,
                 )
@@ -261,9 +272,11 @@ impl App {
                     self.draft = None;
                     self.versions.closed();
                     self.error = None;
-                    Task::perform(async { connect_and_load().await }, |r| {
-                        Message::GamesLoaded(r)
-                    })
+                    self.activity(
+                        "重新载入游戏库",
+                        async { connect_and_load().await },
+                        Message::GamesLoaded,
+                    )
                 }
                 Err(e) => self.set_error(e),
             },
@@ -448,7 +461,8 @@ impl App {
                 }
                 self.picking = true;
                 let request = self.pick_request(target);
-                Task::perform(
+                self.activity(
+                    "打开文件选择器",
                     async move { crate::picker::pick(request).await },
                     move |result| Message::PathPicked(target, result),
                 )

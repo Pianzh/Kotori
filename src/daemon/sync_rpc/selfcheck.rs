@@ -7,6 +7,7 @@
 use serde_json::{Value, json};
 
 use super::Daemon;
+use crate::config::GameConfig;
 use crate::sync::index::IndexGame;
 use crate::sync::selfcheck::{CloudPeek, Decision, Found};
 use crate::sync::signature::{self, Conclusion};
@@ -43,28 +44,30 @@ impl Daemon {
             }
         }
 
-        // 已确认、开关关着、没指纹、没目标：都不用去云端。
+        // 已确认、开关关着、没目标：都不用去云端。
         if !crate::sync::selfcheck::needs_cloud(&game, signature.as_deref()) {
             return crate::sync::selfcheck::decide(&game, signature.as_deref(), || Found::None);
         }
 
-        let fingerprint = game.exe_fingerprint.clone().unwrap_or_default();
-        let found = self.fingerprint_hit(game_id, &fingerprint).await;
+        let found = self.survey_cloud(game_id, &game).await;
         crate::sync::selfcheck::decide(&game, signature.as_deref(), || found)
     }
 
-    /// 指纹在当前云目标上找到了什么（自检**绝不报错、也绝不拦启动**）。
+    /// 云端那份索引里"这一款"对应的是谁 —— **三条判据，指纹优先**。
     ///
     /// ⚠ 读的是**本机缓存里那份索引**，不是所有身份卡 —— 用户 2026-09-24："其他所有查询
     /// 都只查本地索引，最大化减少网络请求次数"。索引是身份卡的镜像，指纹这一栏本来就在
     /// 里面；本地还没有缓存时那条读路径会下载一次（见 `Daemon::cloud_index_view`）。
     ///
-    /// ⚠ **读不到 ≠ 没有**（用户 2026-09-28 在 Windows 上报的"明明一模一样的 exe，却连疑似
-    /// 匹配都没有"）：那天的实情是桶名填成了 `kotori-win`（Linux 那边是 `kotori-saves`），
-    /// kopia 回 `bucket not found`，而弹窗只说"云端没有对得上的"。所以"没能看到云端"一律
-    /// 包成 [`Found::Unavailable`]，让界面说得出原因。文案在这里拼好 —— 一处措辞，
-    /// 界面原样显示，不会分叉。
-    async fn fingerprint_hit(&self, game_id: &str, fingerprint: &str) -> Found {
+    /// ⚠ **读不到 ≠ 没有**（用户 2026-09-28）：桶名填错、网络不通、桶里还没索引，这三种
+    /// 一律包成 [`Found::Unavailable`]，让界面说得出原因，而不是跟着说"云端没有"。
+    ///
+    /// ⚠ **弱判据也要列出来**（同一批里的第二次纠正）：只按指纹筛的话，**没指纹的档案一个
+    /// 候选都不会有** —— 他在 Windows 上那条档案建在指纹功能落地之前，界面于是彻底沉默
+    /// （"连疑似匹配都没有"）。现在名字相同、存档位置的父目录名重合的那几条也会进候选，
+    /// **但只有指纹能自动认领**：弱判据只让弹窗说一句"云端有一条像的"，绑不绑由用户点头
+    /// （用户 09-21："宁可不动，也不猜"）。
+    async fn survey_cloud(&self, game_id: &str, game: &GameConfig) -> Found {
         let view = match self.cloud_index_view(false).await {
             Ok(view) => view,
             Err(error) => {
@@ -73,7 +76,7 @@ impl Daemon {
             }
         };
         // 桶里还没有这份索引（第一次用）：这一刻我们**不知道**云端有没有这一款 ——
-        // 与"索引里有、但没有这个指纹"不是一回事。
+        // 与"索引里有、但没有这一款"不是一回事。
         let Some(index) = view.index else {
             return Found::Unavailable(
                 "这个桶里还没有云端索引（还没有任何一台机器传过）".to_string(),
@@ -84,39 +87,78 @@ impl Daemon {
         let stale = view
             .refresh_error
             .map(|error| format!("这次没能刷新云端索引（{error}），手上是本机缓存的旧索引"));
-        // 指纹命中**任意一个**即算命中（用户 2026-09-24 的口径）；多条 = 云端自己就有重
-        // （同一款被两台机器各建了一次身份）⇒ 要问。
+
+        // 本机**别的**档案已经认领的那些身份：指过去只会让用户撞墙（一个身份只配一款）。
+        let claimed_by_others: std::collections::HashSet<String> = {
+            let config = self.config.read().await;
+            config
+                .games
+                .iter()
+                .filter(|(id, _)| id.as_str() != game_id)
+                .filter_map(|(_, other)| other.cloud_id.clone())
+                .collect()
+        };
+
+        let fingerprint = game.exe_fingerprint.clone().unwrap_or_default();
+        // 1. 指纹恰好命中一条、而且那条没被本机别的档案占着 ⇒ **可以自动认领**。
+        //    （指纹命中**任意一个**即算命中 —— 用户 2026-09-24 的口径。）
         let hits: Vec<&IndexGame> = index
             .games
             .iter()
-            .filter(|game| !fingerprint.is_empty() && game.identity.has_fingerprint(fingerprint))
-            .collect();
-        let [only] = hits.as_slice() else {
-            if hits.is_empty() {
-                return match stale {
-                    Some(reason) => Found::Unavailable(reason),
-                    None => Found::None,
-                };
-            }
-            // 命中多条 ⇒ 要问，并把这几条的事实带上（弹窗里显示"最像的那一条"，挑法在
-            // `matching::best_like` 里，现在就是取第一条）。
-            return Found::Many(hits.iter().map(|game| peek(game)).collect());
-        };
-        // 这条身份已经被**本机别的档案**认领了 ⇒ 要问：本机不该有两个游戏共用一条身份。
-        let taken = {
-            let config = self.config.read().await;
-            config.games.iter().any(|(id, game)| {
-                id != game_id && game.cloud_id.as_deref() == Some(only.identity.cloud_id.as_str())
+            .filter(|candidate| {
+                !fingerprint.is_empty() && candidate.identity.has_fingerprint(&fingerprint)
             })
+            .collect();
+        if let [only] = hits.as_slice()
+            && !claimed_by_others.contains(only.identity.cloud_id.as_str())
+        {
+            return Found::One {
+                cloud_id: only.identity.cloud_id.clone(),
+                cloud_key: only.cloud_key.clone(),
+            };
+        }
+
+        // 2. 其余一律"列候选"：指纹命中多条（或那条被别人占着），或者一条指纹都没中 ——
+        //    后者按弱判据（名字、存档位置的父目录名）再找一遍。
+        //
+        //    筛选与排序都在 `matching::candidates` 里（弱匹配的唯一入口：以后换更好的算法
+        //    只动那一处，这里一行都不用改），这里只负责把数据喂进去、把结果搬成界面要的
+        //    那几栏。
+        let prints: Vec<String> = if fingerprint.is_empty() {
+            Vec::new()
+        } else {
+            vec![fingerprint.clone()]
         };
-        if taken {
-            // 唯一命中却被占用：这一条照样得让用户看见（"疑似找到"的就是它）。
-            return Found::Many(vec![peek(only)]);
+        let parents: Vec<String> = game
+            .save_paths
+            .iter()
+            .filter_map(|save| crate::sync::parent_dir(&save.path))
+            .collect();
+        let local = crate::sync::matching::LocalSide {
+            name: &game.name,
+            fingerprints: &prints,
+            parents: &parents,
+        };
+        let candidates = crate::sync::matching::candidates(
+            &local,
+            index.games.iter().filter(|candidate| {
+                !claimed_by_others.contains(candidate.identity.cloud_id.as_str())
+            }),
+            |candidate| &candidate.identity,
+        );
+
+        if candidates.is_empty() {
+            return match stale {
+                Some(reason) => Found::Unavailable(reason),
+                None => Found::None,
+            };
         }
-        Found::One {
-            cloud_id: only.identity.cloud_id.clone(),
-            cloud_key: only.cloud_key.clone(),
-        }
+        Found::Many(
+            candidates
+                .iter()
+                .map(|candidate| peek(candidate.item))
+                .collect(),
+        )
     }
 
     /// 把自检的结论落盘（`Skip` / `Pull` / `Ask` 不用落任何东西）。

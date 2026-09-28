@@ -113,7 +113,8 @@ impl App {
             return Task::none();
         }
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "识别盘引用",
             async move { mount_infer(&socket, &path).await },
             move |result| Message::NewMountInferred(for_exe, result),
         )
@@ -133,7 +134,8 @@ impl App {
             return Task::none();
         }
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "识别盘引用",
             async move { mount_infer(&socket, &path).await },
             move |result| Message::MountInferred(for_exe, result),
         )

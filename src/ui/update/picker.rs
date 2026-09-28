@@ -16,9 +16,11 @@ impl App {
             Message::ProcessPickerOpen => {
                 self.process_picker.open();
                 let socket = self.daemon_socket.clone();
-                Task::perform(async move { load_processes(&socket).await }, |result| {
-                    Message::ProcessesLoaded(result)
-                })
+                self.activity(
+                    "读正在运行的进程",
+                    async move { load_processes(&socket).await },
+                    Message::ProcessesLoaded,
+                )
             }
             Message::ProcessesLoaded(result) => {
                 match result {

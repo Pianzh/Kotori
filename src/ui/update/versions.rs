@@ -26,7 +26,8 @@ impl App {
             return Task::none();
         }
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "读这一款的版本列表",
             async move { cloud_versions(&socket, key).await },
             Message::GameVersionsLoaded,
         )
@@ -78,19 +79,19 @@ impl App {
                 let game_id = self.versions.game_id.clone();
                 let socket = self.daemon_socket.clone();
                 match action {
-                    Confirmation::Replace { version } => Task::perform(
+                    Confirmation::Replace { version } => self.activity("取回存档", 
                         async move { sync_restore(&socket, &game_id, Some(version.as_str())).await },
                         Message::GameVersionsReplaced,
                     ),
-                    Confirmation::DeleteVersion { version } => Task::perform(
+                    Confirmation::DeleteVersion { version } => self.activity("删除那一版存档", 
                         async move { sync_delete_version(&socket, key, version).await },
                         Message::GameVersionsDeleted,
                     ),
-                    Confirmation::ClearVersions => Task::perform(
+                    Confirmation::ClearVersions => self.activity("删除云端版本", 
                         async move { sync_clear_versions(&socket, key).await },
                         Message::GameVersionsDeleted,
                     ),
-                    Confirmation::ForgetIdentity => Task::perform(
+                    Confirmation::ForgetIdentity => self.activity("忘掉这条云端身份", 
                         async move { sync_forget_identity(&socket, key).await },
                         Message::GameVersionsDeleted,
                     ),

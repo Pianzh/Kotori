@@ -110,12 +110,59 @@ pub fn fingerprint_owners<'a>(
     owners
 }
 
+/// 一条候选（[`candidates`] 的产物）：像不像、有多像、以及它是谁。
+///
+/// 字段是 `pub` 的：调用方要按它判断"能不能自动绑"（**只有 [`Likeness::Fingerprint`]
+/// 可以**），也要拿 `item` 去拼界面要显示的那一份事实。
+#[derive(Debug, Clone, Copy)]
+pub struct Candidate<'a, T> {
+    /// 命中的最强那条判据。
+    pub likeness: Likeness,
+    /// 存档位置的父目录名重合了几个（同一档里的排序依据）。
+    pub shared: usize,
+    /// 云端那一项本身（`IndexGame` / `GameIdentity`…… 由调用方决定）。
+    pub item: &'a T,
+}
+
+/// 在"云端这一堆身份"里挑出所有**像**本机这一款的，并按"最像"排好序。
+///
+/// ⚠ **这是弱匹配的唯一入口**（用户 2026-09-28："弱判据拆出来，以后会考虑匹配更好的
+/// 算法"）。以后要换算法（名字相似度、厂商、VNDB 对齐……），**只改这一个函数与
+/// [`Likeness`] 的排序** —— 调用方（启动前自检、配对页、添加页）一行都不用动。
+///
+/// `identity_of` 是"从这一项里取出它的身份"：这样这里不必认识 `IndexGame` 之类的东西，
+/// 也就能直接拿普通切片做单测。
+///
+/// 排序：判据越硬越前（[`Likeness`] 的 `Ord` 就是"谁更硬"），同一档里父目录名重合多的在前。
+/// 于是"最像的那一条"就是 `[0]`（见 [`best_like`]）。
+pub fn candidates<'a, T>(
+    local: &LocalSide<'_>,
+    items: impl IntoIterator<Item = &'a T>,
+    identity_of: impl Fn(&'a T) -> &'a GameIdentity,
+) -> Vec<Candidate<'a, T>> {
+    let mut found: Vec<Candidate<'a, T>> = items
+        .into_iter()
+        .filter_map(|item| {
+            let identity = identity_of(item);
+            let likeness = likeness(local, identity)?;
+            let shared = shared_parents(local.parents, identity);
+            Some(Candidate {
+                likeness,
+                shared,
+                item,
+            })
+        })
+        .collect();
+    found.sort_by_key(|candidate| (candidate.likeness, std::cmp::Reverse(candidate.shared)));
+    found
+}
+
 /// 候选里"最像的那一条"。
 ///
-/// ⚠ **现在的规则就是取第一条**。用户 2026-09-24："指纹命中多个游戏弹出最像的一个（什么
-/// 是最像，现在还没有思路与确定，可以写个空函数默认取第一个或者随机取一个，这个问题就交给
-/// 以后了）"。以后有更好的判据（名字相似度、厂商、VNDB 对齐……）**只改这一个函数** ——
-/// 自检、弹窗、以后的批量对齐都不用动。
+/// ⚠ **现在的规则就是取第一条** —— 而"第一条"的顺序由 [`candidates`] 保证（判据强弱，
+/// 同档按父目录名重合数）。用户 2026-09-24："指纹命中多个游戏弹出最像的一个（什么是最像，
+/// 现在还没有思路与确定，可以写个空函数默认取第一个或者随机取一个，这个问题就交给以后
+/// 了）"。以后有更好的判据，**改 [`candidates`] 那一处**即可，这里不用动。
 pub fn best_like<T>(candidates: &[T]) -> Option<&T> {
     candidates.first()
 }
@@ -208,5 +255,43 @@ mod tests {
         assert_eq!(shared_parents(&["game".into(), "vendor".into()], &cloud), 2);
         assert_eq!(shared_parents(&["game".into(), "other".into()], &cloud), 1);
         assert_eq!(shared_parents(&["other".into()], &cloud), 0);
+    }
+
+    /// **弱判据也要列出来，而且要排好序**（用户 2026-09-28："连疑似匹配都没有"）。
+    ///
+    /// 名字相同、存档父目录名重合的那几条都算候选：判据越硬越前，同一档里父目录名重合多的
+    /// 在前 —— 于是"最像的那一条"就是 `[0]`（弹窗显示的就是它）。**只有指纹那条允许自动
+    /// 绑**，这一条测试只管"列得出来、排得对"。
+    #[test]
+    fn weak_evidence_lists_candidates_ordered_by_likeness() {
+        let by_name = identity("同一款", vec![machine("a", &[], &[])]);
+        let by_parent = identity("另一款", vec![machine("b", &[], &["game"])]);
+        let by_both = identity("同一款", vec![machine("c", &[], &["game", "vendor"])]);
+        let unrelated = identity("无关的", vec![machine("d", &[], &["other"])]);
+        let all = [&by_name, &by_parent, &by_both, &unrelated];
+
+        // 本机这一款：没有指纹（所以只能靠弱判据），名字与两条父目录名。
+        let prints: Vec<String> = Vec::new();
+        let parents = ["game".to_string(), "vendor".to_string()];
+        let found = candidates(
+            &LocalSide {
+                name: "同一款",
+                fingerprints: &prints,
+                parents: &parents,
+            },
+            all.iter().copied(),
+            |identity| identity,
+        );
+
+        let names: Vec<&str> = found.iter().map(|one| one.item.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["同一款", "同一款", "另一款"],
+            "命中的都要在，无关的那条不许进：{names:?}"
+        );
+        assert_eq!(found[0].likeness, Likeness::Name);
+        assert_eq!(found[0].shared, 2, "同一档里父目录名重合多的排前面");
+        assert_eq!(found[1].shared, 0);
+        assert_eq!(found[2].likeness, Likeness::ParentDir);
     }
 }

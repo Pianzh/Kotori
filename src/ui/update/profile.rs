@@ -171,7 +171,8 @@ impl App {
         let socket = self.daemon_socket.clone();
         Task::batch([
             error_task,
-            Task::perform(
+            self.activity(
+                "重新载入游戏库",
                 async move { load_games_from(&socket).await },
                 Message::GamesLoaded,
             ),

@@ -70,8 +70,13 @@ pub enum Decision {
 
 /// 要不要为了这次自检去**读云端**（kopia 那边读一次身份 = 一次 restore）。
 ///
-/// 开关关着、目标没配齐、已确认、没有指纹 —— 这四种都不用读。[`decide`] 与它必须
-/// 说同一件事：调用方先问这个，再决定要不要花那次网络往返。
+/// 开关关着、目标没配齐、已确认 —— 这三种都不用读。[`decide`] 与它必须说同一件事：
+/// 调用方先问这个，再决定要不要花那次读取。
+///
+/// ⚠ 从前这里还要求"有指纹"，于是**没指纹的档案连一个候选都不会有**：用户 2026-09-28 在
+/// Windows 上报的"明明一模一样的 exe，却连疑似匹配都没有"就是这个（那条档案建在指纹功能
+/// 落地之前）。现在只要有**弱判据**（名字、存档位置）也去读一次 —— 读的是**本机缓存**那份
+/// 索引，没有缓存时才会联网一次（见 `Daemon::cloud_index_view`），与"每次都去云端"是两件事。
 pub fn needs_cloud(game: &GameConfig, signature: Option<&str>) -> bool {
     let (Some(signature), true) = (signature, game.sync_enabled) else {
         return false;
@@ -79,9 +84,22 @@ pub fn needs_cloud(game: &GameConfig, signature: Option<&str>) -> bool {
     if confirmed_on(game, signature) {
         return false;
     }
+    has_fingerprint(game) || has_weak_evidence(game)
+}
+
+/// 强判据：这一款算过指纹（只有它能自动认领）。
+pub fn has_fingerprint(game: &GameConfig) -> bool {
     game.exe_fingerprint
         .as_deref()
-        .is_some_and(|f| !f.is_empty())
+        .is_some_and(|fingerprint| !fingerprint.is_empty())
+}
+
+/// 弱判据：名字，或者至少一个存档位置（父目录名由它算出来）。
+///
+/// 弱判据**只用来列候选**（见 [`crate::sync::matching`]），但它决定"要不要读一次索引"：
+/// 没有它，没指纹的那一款在界面上连一个候选都不会有。
+pub fn has_weak_evidence(game: &GameConfig) -> bool {
+    !game.name.trim().is_empty() || !game.save_paths.is_empty()
 }
 
 /// 这一款在当前目标上**真的**确认过没有？
@@ -423,5 +441,27 @@ mod tests {
                 cloud_key: "renamed".into()
             }
         );
+    }
+
+    /// **没指纹也要去读一次云端**（用户 2026-09-28："连疑似匹配都没有"）。
+    ///
+    /// 从前的判据要求"有指纹"，于是没指纹的档案连一个候选都不会有 —— 他在 Windows 上那条
+    /// 档案建在指纹功能落地之前，界面就彻底沉默了。现在名字/存档位置这两条弱判据也算数。
+    #[test]
+    fn a_game_without_a_fingerprint_still_has_weak_evidence_to_look_up() {
+        let mut game = game();
+        assert!(game.exe_fingerprint.is_none());
+        assert!(!has_fingerprint(&game));
+        assert!(has_weak_evidence(&game), "夹具里的名字是有的");
+        assert!(
+            needs_cloud(&game, Some(SIG)),
+            "没指纹也要读一次索引，否则连候选都列不出来"
+        );
+
+        // 连名字都空、又没有存档位置：那才是"什么都不用查"。
+        game.name = String::new();
+        game.save_paths.clear();
+        assert!(!has_weak_evidence(&game));
+        assert!(!needs_cloud(&game, Some(SIG)));
     }
 }
