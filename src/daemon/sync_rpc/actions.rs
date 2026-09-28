@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use crate::config::{SyncConfig, SyncEngine};
 use crate::secrets::Keyring;
 
-use super::{CHECK_TIMEOUT, Daemon, GameOutcome, PULL_TIMEOUT, SETTLE_DELAY, sync};
+use super::{
+    CHECK_TIMEOUT, Daemon, ExitUpload, GameOutcome, PULL_TIMEOUT, Refusal, SETTLE_DELAY,
+    SkipReason, exit_upload_gate, sync,
+};
 
 /// 「恢复」自己的总上限：它要下载、解包、再铺回本机，比"点开看一眼"慢得多 ——
 /// 网络卡住时用户不该无限等，而正常的一次恢复也绝不能被误杀（BUG-12）。
@@ -340,36 +343,53 @@ impl Daemon {
     ///
     /// Runs detached from the session watcher: an upload must never hold up the
     /// engine, and the daemon may be asked to shut down while it runs.
-    pub(in crate::daemon) async fn sync_after_game_exit(&self, game_id: &str) {
+    ///
+    /// ⚠ **返回"传了没有、为什么没传"是刻意的**（用户 2026-09-28 在 Windows 上实测
+    /// "推出后没有自动上传"，而四条早退路里有一条**连日志都没有**）。从前返回 `()`，
+    /// 于是"开关关着"与"引擎没装"在调用方眼里一模一样 —— 手动「立即同步」走的是另一个
+    /// 函数、不受单款开关限制，用户看到的现象正是"手动能传、自动不传"，而没有任何一处
+    /// 说得清原因。判据与文案只有一份：`exit_upload::exit_upload_gate`。
+    ///
+    /// 末尾那行**分步耗时**是给"退出后过了很久才传完 / 根本没传完"用的：一次真实往返
+    /// 串着 `pack_identity`（读云端）→ `upload`（打包 + 分块传）→ `refresh_index_for`
+    /// （又一次网络往返），三段哪段慢，日志里一眼就有答案。
+    pub(in crate::daemon) async fn sync_after_game_exit(&self, game_id: &str) -> ExitUpload {
+        let started = std::time::Instant::now();
         let settings = {
+            // ⚠ 读锁只在这几行里，`exit_upload_gate` 是纯函数、没有 `await`（PLATFORMS.md
+            //   §0.1 第 12 条：配置读锁绝不许跨 `await` 持有）。
             let config = self.config.read().await;
-            if !config.sync.enabled {
-                return;
+            match exit_upload_gate(game_id, &config) {
+                Ok(settings) => settings,
+                Err(refusal) => {
+                    tracing::info!("{game_id}: 退出后不上传: {}", refusal.detail);
+                    self.sync
+                        .remember_note(game_id, "上传", true, refusal.detail.clone());
+                    return ExitUpload::Skipped(refusal);
+                }
             }
-            // 这一款的开关关着 ⇒ **不自动上传**（手动「立即同步」不受限制）。
-            if !config
-                .games
-                .get(game_id)
-                .is_some_and(|game| game.sync_enabled)
-            {
-                tracing::debug!("{game_id}: 这一款的云同步开关关着，退出后不上传");
-                return;
-            }
-            config.sync.clone()
         };
 
         let (name, targets) = match self.sync_targets(game_id).await {
             Ok(pair) => pair,
             Err(error) => {
-                tracing::debug!("{game_id}: 跳过退出后上传: {error}");
-                return;
+                // 过了闸门还走到这里 = 位置配了但这一刻解析不出来（盘没插之类）。
+                let refusal = Refusal {
+                    reason: SkipReason::LocationsUnresolved,
+                    detail: error.clone(),
+                };
+                tracing::info!("{game_id}: 退出后不上传: {error}");
+                self.sync.remember_note(game_id, "上传", true, error);
+                return ExitUpload::Skipped(refusal);
             }
         };
         let runner = match self.sync_runner(&settings) {
             Ok(runner) => runner,
             Err(error) => {
                 tracing::warn!("{game_id}: 退出后上传失败: {error}");
-                return;
+                self.sync
+                    .remember_note(game_id, "上传", false, error.clone());
+                return ExitUpload::Failed(error);
             }
         };
 
@@ -377,13 +397,19 @@ impl Daemon {
         tokio::time::sleep(SETTLE_DELAY).await;
 
         // 身份先定下来：包要带着它上云（第一次上传就在这一刻认领）。
+        let identity_started = std::time::Instant::now();
         let packed = match self.pack_identity(&runner, game_id, &name, &targets).await {
             Ok(packed) => packed,
             Err(error) => {
                 tracing::warn!("{game_id}: 退出后上传失败: {error}");
-                return;
+                self.sync
+                    .remember_note(game_id, "上传", false, error.clone());
+                return ExitUpload::Failed(error);
             }
         };
+        let identity_took = identity_started.elapsed();
+
+        let upload_started = std::time::Instant::now();
         let outcome = runner
             .upload(
                 game_id,
@@ -393,13 +419,25 @@ impl Daemon {
                 Some(&packed.identity),
             )
             .await;
+        let upload_took = upload_started.elapsed();
         self.sync.remember(game_id, "上传", &outcome);
         if outcome.ok {
             // 索引：**尽力而为** —— 这里出错只记日志，绝不让同步报错。
+            let index_started = std::time::Instant::now();
             self.refresh_index_for(&runner, game_id).await;
-            tracing::info!("{game_id}: 退出后已同步存档");
+            tracing::info!(
+                "{game_id}: 退出后已同步存档（全程 {:?}：认身份 {identity_took:?} / \
+                 上传 {upload_took:?} / 索引 {:?}）",
+                started.elapsed(),
+                index_started.elapsed()
+            );
+            ExitUpload::Uploaded
         } else {
-            tracing::warn!("{game_id}: 退出后同步失败: {:?}", outcome.error);
+            tracing::warn!(
+                "{game_id}: 退出后同步失败: {:?}（上传 {upload_took:?}）",
+                outcome.error
+            );
+            ExitUpload::Failed(outcome.error.unwrap_or_else(|| "未知原因".to_string()))
         }
     }
 }

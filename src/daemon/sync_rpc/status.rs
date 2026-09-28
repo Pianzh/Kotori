@@ -97,11 +97,25 @@ impl Daemon {
                 } else {
                     cloud_of(&cloud_id)
                 };
+                // 这一款**退出后不会自动上传**的原因（`None` = 会自动传）。
+                //
+                // ⚠ 用户 2026-09-28 在 Windows 上报的就是"退出后没有自动上传"，而界面
+                // 从前一个字都不说：用户只能看到"手动能传"，没法知道是**哪一道闸门**
+                // 关着。这里报的是与日志、与 `actions::sync_after_game_exit` 同一份判据
+                // （`exit_upload_gate`），所以界面说的和日志说的不会分叉。
+                let auto_upload_blocked = match exit_upload_gate(id, &config) {
+                    Ok(_) => Value::Null,
+                    Err(refusal) => json!({
+                        "reason": refusal.reason.code(),
+                        "detail": refusal.detail,
+                    }),
+                };
                 json!({
                     "id": id,
                     "name": game.name,
                     "locations": count,
                     "location_problem": location_problem,
+                    "auto_upload_blocked": auto_upload_blocked,
                     "last": records.get(id),
                     // 当前绑定：身份 id 与落点是本机记的，名字与摘要是索引里的镜像。
                     "cloud_id": cloud_id,

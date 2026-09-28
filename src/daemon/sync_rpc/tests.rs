@@ -12,6 +12,7 @@ use std::path::PathBuf;
 
 // 自检与配对结论那一族单开了一个文件（`tests/resolve.rs`）：这个文件顶过 500 行软线，
 // 拆开之后两边都留了余量。夹具（`call` / `daemon*`）仍是 `pub(super)`，那边 `use super::…`。
+mod exit_upload;
 mod resolve;
 
 /// Send a raw JSON-RPC request through the real dispatcher.

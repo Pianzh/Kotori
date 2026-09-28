@@ -278,6 +278,9 @@ impl Daemon {
                         };
                         let this = this.clone();
                         tokio::spawn(async move {
+                            // 结果**故意在这里丢掉**：那个函数自己已经把每一道闸门
+                            // 说了（日志 + `sync.status` 的 `auto_upload_blocked`），
+                            // 调用方要做的只是"别让慢网络卡住引擎或下一个事件"。
                             this.sync_after_game_exit(&game_id).await;
                         });
                     }

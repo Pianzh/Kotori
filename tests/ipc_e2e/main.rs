@@ -27,5 +27,6 @@ mod pairing;
 mod session;
 mod sync;
 mod sync_cloud;
+mod sync_exit_upload;
 mod sync_index;
 mod watch;

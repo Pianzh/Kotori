@@ -202,12 +202,25 @@ impl SyncState {
                 format!("{done} 个位置已{action}")
             }
         });
+        self.record(game_id, action, outcome.ok, detail);
+    }
+
+    /// 一条**没有真的同步过**的留痕：跳过与失败都要记。
+    ///
+    /// ⚠ 跳过时什么都不记是有代价的（用户 2026-09-28 报的"退出后没有自动上传"）：
+    /// 界面上留着的还是**上一次**那条"上传成功" —— 一局玩完什么也没传，界面却在撒谎，
+    /// 而用户能看到的只有一句"看起来同步过"。
+    fn remember_note(&self, game_id: &str, action: &str, ok: bool, detail: impl Into<String>) {
+        self.record(game_id, action, ok, detail.into());
+    }
+
+    fn record(&self, game_id: &str, action: &str, ok: bool, detail: String) {
         if let Ok(mut records) = self.records.lock() {
             records.insert(
                 game_id.to_string(),
                 SyncRecord {
                     at: chrono::Utc::now(),
-                    ok: outcome.ok,
+                    ok,
                     action: action.to_string(),
                     detail,
                 },
@@ -458,6 +471,7 @@ fn clean_prefix(value: &str) -> Result<String, String> {
 mod actions;
 mod credentials;
 mod delete;
+mod exit_upload;
 mod identity;
 mod index;
 mod matching;
@@ -469,3 +483,7 @@ mod status;
 mod tests;
 #[cfg(test)]
 mod tests_credentials;
+
+// 「退出后自动上传为什么没跑」那一族。`actions`（真的去传）与 `status`（报给界面）
+// 共用同一份判据与文案，见 `exit_upload` 顶上的说明。
+pub(in crate::daemon) use exit_upload::{ExitUpload, Refusal, SkipReason, exit_upload_gate};
