@@ -20,22 +20,30 @@ use serde_json::json;
 use crate::fixture::Fixture;
 use crate::helpers::{cloud_packages, wait_until, write_script};
 
-/// 建一款游戏：存档目录、exe、以及建档要的那两个字段。
-fn make_game(fixture: &Fixture, name: &str) -> (std::path::PathBuf, std::path::PathBuf) {
+/// 建一款游戏：回传 **id、存档目录、exe**。
+///
+/// ⚠ id **不许在调用方硬写**：它是 daemon 从名字推出来的（"ExitGame" → `exitgame`，带空格的
+/// "Life Game" 才是 `life-game`）。硬写过一次就红了一轮 —— 断言拿着一个不存在的 id，
+/// 看不出是"没建档成功"还是"找错了那一款"。
+fn make_game(fixture: &Fixture, name: &str) -> (String, std::path::PathBuf, std::path::PathBuf) {
     let game_dir = fixture.dir.join(name);
     let saves = game_dir.join("savedata");
     std::fs::create_dir_all(&saves).unwrap();
     let exe = game_dir.join("game.exe");
     std::fs::write(&exe, b"").unwrap();
 
+    // ⚠ `game.create` 回的是 `{id, name}`，**没有** `success` 那一栏。
     let response = fixture.rpc(
         "game.create",
         json!({ "name": name, "exe_path": exe, "game_dir": game_dir }),
     );
-    assert_eq!(response["result"]["success"], true, "{response}");
+    let id = response["result"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("建档要回 id: {response}"))
+        .to_string();
     let response = fixture.rpc(
         "game.update",
-        json!({ "id": response["result"]["id"], "save_paths": ["savedata"] }),
+        json!({ "id": id, "save_paths": ["savedata"] }),
     );
     assert_eq!(response["result"]["success"], true, "{response}");
     let response = fixture.rpc(
@@ -43,7 +51,7 @@ fn make_game(fixture: &Fixture, name: &str) -> (std::path::PathBuf, std::path::P
         json!({ "key_id": "id", "app_key": "key" }),
     );
     assert_eq!(response["result"]["stored"], true, "{response}");
-    (saves, exe)
+    (id, saves, exe)
 }
 
 /// 把 `game.exe` 换成一个会一直跑下去的进程，并让它跑起来。
@@ -102,25 +110,22 @@ fn an_exit_with_the_switch_off_explains_itself_in_the_status() {
     let remote = fixture.enable_fake_sync(true);
     fixture.start();
 
-    let (saves, exe) = make_game(&fixture, "ExitGame");
-    let packages = remote.join("games/exit-game");
+    let (id, saves, exe) = make_game(&fixture, "ExitGame");
+    let packages = remote.join(format!("games/{id}"));
 
     // 先手动传一版，于是界面上有一条"上传成功" —— 用户看到的就是这个状态。
     assert_eq!(
-        fixture.rpc("sync.now", json!({ "id": "exit-game" }))["result"]["ok"],
+        fixture.rpc("sync.now", json!({ "id": id }))["result"]["ok"],
         true
     );
     assert_eq!(cloud_packages(&packages).len(), 1, "先有第一版");
 
     // 用户把这一款的参与开关关掉。
-    let response = fixture.rpc(
-        "game.update",
-        json!({ "id": "exit-game", "sync_enabled": false }),
-    );
+    let response = fixture.rpc("game.update", json!({ "id": id, "sync_enabled": false }));
     assert_eq!(response["result"]["success"], true, "{response}");
 
     // ⚠ 界面**在游戏还没跑的时候**就该说得出这件事 —— 不用等退出、不用翻日志。
-    let game = game_in_status(&fixture, "exit-game");
+    let game = game_in_status(&fixture, &id);
     assert_eq!(
         game["auto_upload_blocked"]["reason"], "per_game_off",
         "这一款关了自动上传，界面必须报出是哪一道闸门：{game}"
@@ -133,7 +138,7 @@ fn an_exit_with_the_switch_off_explains_itself_in_the_status() {
     );
 
     // 真跑一局再退出。
-    let mut child = spawn_watched_game(&fixture, "exit-game", &exe);
+    let mut child = spawn_watched_game(&fixture, &id, &exe);
     std::fs::write(saves.join("save.dat"), b"played-a-while").unwrap();
     child.kill().unwrap();
     child.wait().unwrap();
@@ -142,7 +147,7 @@ fn an_exit_with_the_switch_off_explains_itself_in_the_status() {
     // `wait_until` 给足 `POLL_INTERVAL` 2s + `SETTLE_DELAY` 3s 的余量。
     assert!(
         wait_until(Duration::from_secs(30), || {
-            game_in_status(&fixture, "exit-game")["last"]["detail"]
+            game_in_status(&fixture, &id)["last"]["detail"]
                 .as_str()
                 .is_some_and(|d| d.contains("开关"))
         }),
@@ -150,7 +155,7 @@ fn an_exit_with_the_switch_off_explains_itself_in_the_status() {
          什么线索都没有\n--- daemon log ---\n{}",
         fixture.logs()
     );
-    let game = game_in_status(&fixture, "exit-game");
+    let game = game_in_status(&fixture, &id);
     // 跳过**不是**失败：它是用户自己选的，不该标成错误。
     assert_eq!(
         game["last"]["ok"], true,
@@ -177,25 +182,25 @@ fn an_engine_failure_after_the_exit_is_recorded_as_a_failure() {
     let remote = fixture.enable_fake_sync(true);
     fixture.start();
 
-    let (saves, exe) = make_game(&fixture, "FailGame");
-    let packages = remote.join("games/fail-game");
+    let (id, saves, exe) = make_game(&fixture, "FailGame");
+    let packages = remote.join(format!("games/{id}"));
 
     // 让假 rclone 一调用 `copyto`（真上传那一步）就失败。
     std::fs::write(fixture.dir.join("fail"), "copyto").unwrap();
 
-    let mut child = spawn_watched_game(&fixture, "fail-game", &exe);
+    let mut child = spawn_watched_game(&fixture, &id, &exe);
     std::fs::write(saves.join("save.dat"), b"played-a-while").unwrap();
     child.kill().unwrap();
     child.wait().unwrap();
 
     assert!(
         wait_until(Duration::from_secs(30), || {
-            game_in_status(&fixture, "fail-game")["last"]["ok"] == false
+            game_in_status(&fixture, &id)["last"]["ok"] == false
         }),
         "引擎报错之后退出上传该记成**失败**，而不是一声不吭\n--- daemon log ---\n{}",
         fixture.logs()
     );
-    let game = game_in_status(&fixture, "fail-game");
+    let game = game_in_status(&fixture, &id);
     // 要说清是**引擎**出的问题，不是一句"同步失败"。
     assert!(
         game["last"]["detail"]
@@ -235,8 +240,8 @@ fn a_hung_engine_does_not_wedge_the_daemon() {
         "#!/bin/sh\n[ \"$1\" = \"--kotori-warmup\" ] && exit 0\nsleep 600\n",
     );
 
-    let (saves, exe) = make_game(&fixture, "HangGame");
-    let mut child = spawn_watched_game(&fixture, "hang-game", &exe);
+    let (id, saves, exe) = make_game(&fixture, "HangGame");
+    let mut child = spawn_watched_game(&fixture, &id, &exe);
     std::fs::write(saves.join("save.dat"), b"played-a-while").unwrap();
     child.kill().unwrap();
     child.wait().unwrap();
