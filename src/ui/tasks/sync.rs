@@ -226,12 +226,10 @@ pub(in crate::ui) async fn cloud_versions(
 /// **添加页**那一问（`sync.match`）：这个 exe 在云端是哪一款。
 ///
 /// 指纹由 daemon 现算（不让客户端递 —— 它是自动绑定的唯一依据），读的是**索引**
-/// （一次读，不遍历身份卡）。`indexed == false` 表示桶里还没建过索引，那与"云端没有
-/// 这一款"是两句话，所以两者一起回给界面。
-pub(in crate::ui) async fn match_exe(
-    socket: &Path,
-    exe: String,
-) -> Result<(bool, Vec<CloudGameRow>), String> {
+/// （一次读，不遍历身份卡）。回包里有两个"负面事实"要分清：`indexed == false` 是桶里
+/// 还没建过索引，`refresh_error` 是这次刷新失败了 —— 两者都与"云端没有这一款"不是一句话
+/// （用户 2026-09-28 在 Windows 上踩的就是后者：桶名填错，索引根本读不到）。
+pub(in crate::ui) async fn match_exe(socket: &Path, exe: String) -> Result<MatchReply, String> {
     let params = crate::rpc::params([("exe", Value::String(exe))]);
     let value = crate::rpc::call(socket, "sync.match", Some(params)).await?;
     parse_cloud_match(&value)

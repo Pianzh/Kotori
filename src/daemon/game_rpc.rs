@@ -140,22 +140,45 @@ impl Daemon {
         let decision = self.sync_selfcheck(id).await;
         if matches!(decision, crate::sync::selfcheck::Decision::Ask { .. }) {
             if selfcheck {
-                tracing::info!("{id}: 启动前要问一次配对（指纹认不出云端那一条）");
-                // 把"疑似找到的那一条"一起带回界面：有就显示它（名字与摘要由界面用**同一个
-                // 函数**生成），没有就是"完全没找到"。用户 2026-09-24 要弹窗说清云端那款叫
-                // 什么，否则他没法定夺。
-                let cloud = match &decision {
-                    crate::sync::selfcheck::Decision::Ask { found: Some(found) } => json!({
-                        "cloud_id": &found.cloud_id,
-                        "cloud_key": &found.cloud_key,
-                        "name": &found.name,
-                        "versions": found.versions,
-                        "latest": &found.latest,
-                        "size": found.size,
-                    }),
-                    _ => serde_json::Value::Null,
+                // 把事实一起带回界面：疑似找到的那一条（名字与摘要由界面用**同一个函数**
+                // 生成，用户 2026-09-24），以及"为什么没认出来"。
+                //
+                // ⚠ `cloud_trouble` 是**第三种情况**（用户 2026-09-28 在 Windows 上报的那次：
+                // 桶名填成了 `kotori-win`，而 Linux 那边是 `kotori-saves`，kopia 回
+                // `bucket not found` —— 界面只说"云端没有对得上的"，把**没读到**说成了**没有**）。
+                // 有它时界面要说"没读到云端"，而不是"云端没有"。
+                let (cloud, cloud_trouble) = match &decision {
+                    crate::sync::selfcheck::Decision::Ask { found, trouble } => {
+                        let cloud = match found {
+                            Some(found) => json!({
+                                "cloud_id": &found.cloud_id,
+                                "cloud_key": &found.cloud_key,
+                                "name": &found.name,
+                                "versions": found.versions,
+                                "latest": &found.latest,
+                                "size": found.size,
+                            }),
+                            None => serde_json::Value::Null,
+                        };
+                        let trouble = match trouble {
+                            Some(reason) => json!(reason),
+                            None => serde_json::Value::Null,
+                        };
+                        (cloud, trouble)
+                    }
+                    _ => (serde_json::Value::Null, serde_json::Value::Null),
                 };
-                return Ok(json!({ "needs_sync_decision": true, "cloud": cloud }));
+                // 两种"认不出"在日志里也必须分得开 —— 查错时这一行就是入口。
+                if cloud_trouble.is_null() {
+                    tracing::info!("{id}: 启动前要问一次配对（指纹认不出云端那一条）");
+                } else {
+                    tracing::warn!("{id}: 启动前要问一次配对（没读到云端索引：{cloud_trouble}）");
+                }
+                return Ok(json!({
+                    "needs_sync_decision": true,
+                    "cloud": cloud,
+                    "cloud_trouble": cloud_trouble,
+                }));
             }
             tracing::debug!("{id}: 认不出云端那一条，但客户端答不了这一问 —— 照旧启动");
         }

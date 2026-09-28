@@ -37,23 +37,37 @@ impl Daemon {
         crate::sync::selfcheck::decide(&game, signature.as_deref(), || found)
     }
 
-    /// 指纹在当前云目标上找到了什么（拿不到索引就当作"没命中"，自检**绝不报错**）。
+    /// 指纹在当前云目标上找到了什么（自检**绝不报错、也绝不拦启动**）。
     ///
     /// ⚠ 读的是**本机缓存里那份索引**，不是所有身份卡 —— 用户 2026-09-24："其他所有查询
     /// 都只查本地索引，最大化减少网络请求次数"。索引是身份卡的镜像，指纹这一栏本来就在
     /// 里面；本地还没有缓存时那条读路径会下载一次（见 `Daemon::cloud_index_view`）。
+    ///
+    /// ⚠ **读不到 ≠ 没有**（用户 2026-09-28 在 Windows 上报的"明明一模一样的 exe，却连疑似
+    /// 匹配都没有"）：那天的实情是桶名填成了 `kotori-win`（Linux 那边是 `kotori-saves`），
+    /// kopia 回 `bucket not found`，而弹窗只说"云端没有对得上的"。所以"没能看到云端"一律
+    /// 包成 [`Found::Unavailable`]，让界面说得出原因。文案在这里拼好 —— 一处措辞，
+    /// 界面原样显示，不会分叉。
     async fn fingerprint_hit(&self, game_id: &str, fingerprint: &str) -> Found {
         let view = match self.cloud_index_view(false).await {
             Ok(view) => view,
             Err(error) => {
                 tracing::warn!("{game_id}: 自检读不到云端索引，当作未配对: {error}");
-                return Found::None;
+                return Found::Unavailable(format!("读不到云端索引：{error}"));
             }
         };
-        // 桶里还没有这份索引（第一次用）：与"云端没有这一款"一样，都是认不出。
+        // 桶里还没有这份索引（第一次用）：这一刻我们**不知道**云端有没有这一款 ——
+        // 与"索引里有、但没有这个指纹"不是一回事。
         let Some(index) = view.index else {
-            return Found::None;
+            return Found::Unavailable(
+                "这个桶里还没有云端索引（还没有任何一台机器传过）".to_string(),
+            );
         };
+        // 有缓存、但这次刷新失败：下面这份是**旧**的。命中照样算数（旧证据也是证据），
+        // 没命中就必须说清"手上这份是旧的" —— 否则用户会以为云端真的没有。
+        let stale = view
+            .refresh_error
+            .map(|error| format!("这次没能刷新云端索引（{error}），手上是本机缓存的旧索引"));
         // 指纹命中**任意一个**即算命中（用户 2026-09-24 的口径）；多条 = 云端自己就有重
         // （同一款被两台机器各建了一次身份）⇒ 要问。
         let hits: Vec<&IndexGame> = index
@@ -63,7 +77,10 @@ impl Daemon {
             .collect();
         let [only] = hits.as_slice() else {
             if hits.is_empty() {
-                return Found::None;
+                return match stale {
+                    Some(reason) => Found::Unavailable(reason),
+                    None => Found::None,
+                };
             }
             // 命中多条 ⇒ 要问，并把这几条的事实带上（弹窗里显示"最像的那一条"，挑法在
             // `matching::best_like` 里，现在就是取第一条）。

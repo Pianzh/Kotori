@@ -64,7 +64,10 @@ async fn the_pre_launch_self_check_asks_once_and_remembers_the_answer() {
     // 新档案、没有指纹：认不出云端那一条 ⇒ **问一次**（不带"疑似找到的那一条"）。
     assert_eq!(
         daemon.sync_selfcheck("demo").await,
-        Decision::Ask { found: None }
+        Decision::Ask {
+            found: None,
+            trouble: None
+        }
     );
 
     // "自己挑一条绑上"：绑上云端那一条 ⇒ 结论是"已确认"，而且**真的绑着**。
@@ -95,7 +98,10 @@ async fn the_pre_launch_self_check_asks_once_and_remembers_the_answer() {
     .await;
     assert_eq!(
         daemon.sync_selfcheck("demo").await,
-        Decision::Ask { found: None }
+        Decision::Ask {
+            found: None,
+            trouble: None
+        }
     );
 
     // "关掉这一款的同步"：只关这一款，而且记住"问过了"。
@@ -128,7 +134,10 @@ async fn the_pre_launch_self_check_asks_once_and_remembers_the_answer() {
     }
     assert_eq!(
         daemon.sync_selfcheck("demo").await,
-        Decision::Ask { found: None }
+        Decision::Ask {
+            found: None,
+            trouble: None
+        }
     );
 }
 
@@ -206,6 +215,32 @@ async fn resolve_rejects_an_unknown_choice_without_mutating_the_binding() {
     );
 
     std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+/// **没读到云端 ≠ 云端没有这一款**（用户 2026-09-28 在 Windows 上踩的那次：桶名填成了
+/// `kotori-win`，而 Linux 那边是 `kotori-saves`，kopia 回 `bucket not found` —— 弹窗却
+/// 只说"云端没有对得上的"，于是他以为是指纹匹配坏了）。
+///
+/// 夹具里没有 kopia/rclone，"这一款有指纹、云端又读不到"正是它天然的样子：结论必须照旧是
+/// `Ask`（自检绝不拦启动），但**要带着原因**。
+#[tokio::test]
+async fn a_cloud_that_cannot_be_read_says_so_instead_of_claiming_nothing_is_there() {
+    use crate::sync::selfcheck::Decision;
+
+    let (daemon, _) = daemon_at(Keyring::memory());
+    {
+        let mut config = daemon.config.write().await;
+        config.games.get_mut("demo").unwrap().exe_fingerprint = Some("v1:1:aa".to_string());
+    }
+
+    match daemon.sync_selfcheck("demo").await {
+        Decision::Ask { found, trouble } => {
+            assert!(found.is_none(), "云端都读不到，就没有'疑似找到的那一条'");
+            let trouble = trouble.expect("必须说得出'为什么没认出来'");
+            assert!(!trouble.is_empty(), "原因不许是空的");
+        }
+        other => panic!("有指纹、云端又读不到 ⇒ 该问一次，而不是 {other:?}"),
+    }
 }
 
 #[tokio::test]

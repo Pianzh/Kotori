@@ -34,6 +34,19 @@ pub(in crate::ui) enum MatchPhase {
     Failed(String),
 }
 
+/// `sync.match` 那一次问回来的事实。
+///
+/// 三样都要：**建过索引没有**（`indexed`）、**这次刷新成不成**（`refresh_error`）、以及命中
+/// 的那几行。中间那一项是用户 2026-09-28 在 Windows 上踩出来的：桶名填错时索引根本刷新
+/// 不了，界面却说"云端没有这一款" —— 把"没看到"说成了"没有"。
+#[derive(Debug, Clone, Default)]
+pub(crate) struct MatchReply {
+    pub indexed: bool,
+    /// 刷新云端索引失败的原因（`None` = 刷新成功，或者本来就有新鲜的缓存）。
+    pub refresh_error: Option<String>,
+    pub rows: Vec<CloudGameRow>,
+}
+
 /// 添加页上这块"云端匹配"的全部状态。
 #[derive(Debug, Default)]
 pub(in crate::ui) struct AddMatch {
@@ -42,6 +55,9 @@ pub(in crate::ui) struct AddMatch {
     pub rows: Vec<CloudGameRow>,
     /// 桶里建过索引没有：`false` 时"没有命中"其实是"还没建索引"，两句话不一样。
     pub indexed: bool,
+    /// 这次刷新云端索引失败的原因（`None` = 刷新成功 / 缓存新鲜）。有它时"没有命中"
+    /// 与"没看到"必须分开说。
+    pub refresh_error: Option<String>,
     /// 用户挑中的那一条（按 `cloud_id`）；`None` = 还没挑（或多条还没选）。
     pub chosen: Option<String>,
     /// 用户**自己选**的那一条（从云端清单浮层里点出来的）。
@@ -85,11 +101,14 @@ impl AddMatch {
     }
 
     /// 回包到了。
-    pub(in crate::ui) fn loaded(&mut self, exe: &str, indexed: bool, rows: Vec<CloudGameRow>) {
+    pub(in crate::ui) fn loaded(&mut self, exe: &str, reply: MatchReply) {
         if self.asked.as_deref() != Some(exe) {
             return;
         }
-        self.indexed = indexed;
+        self.indexed = reply.indexed;
+        // ⚠ 刷新失败**留着**：`title`/`detail` 要靠它把"没看到"与"没有"分开说。
+        self.refresh_error = reply.refresh_error;
+        let rows = reply.rows;
         // 唯一命中就直接替用户选上 —— 用户要的正是"匹配成功就直接在本页确定"。
         // 多条命中时**不猜**（那正是配对唯一不可逆的那种错），列出来让他挑。
         self.chosen = match rows.len() {
@@ -191,6 +210,11 @@ impl AddMatch {
             MatchPhase::Ready if self.picked.is_some() => {
                 format!("就绑这一条：《{}》", self.picked.as_ref().unwrap().name)
             }
+            // "没读到云端"要排在"云端没有这一款"**前面**（用户 2026-09-28 在 Windows 上踩的：
+            // 桶名填错 ⇒ 索引根本读不到，界面却说"云端没有这一款"，他就去手动匹配了）。
+            MatchPhase::Ready if self.refresh_error.is_some() => {
+                "没能读到云端 —— 这一款先按新的加".to_string()
+            }
             MatchPhase::Ready if !self.indexed => "云端还没建索引 —— 这一款先按新的加".to_string(),
             MatchPhase::Ready if self.rows.is_empty() => "云端没有这一款".to_string(),
             MatchPhase::Ready if self.rows.len() == 1 => {
@@ -212,6 +236,12 @@ impl AddMatch {
             MatchPhase::Ready if self.picked.is_some() => {
                 self.one_detail(self.picked.as_ref().unwrap())
             }
+            // 刷新失败时把引擎的原话原样给出来，并且说清它**不等于**云端没有这一款 ——
+            // 这是这一页唯一会让人误判成"指纹坏了"的地方。
+            MatchPhase::Ready if self.refresh_error.is_some() => format!(
+                "{}\n没读到云端不等于云端没有这一款。把桶名和网络弄对之后回到本页再问一次就行。",
+                self.refresh_error.as_deref().unwrap_or_default()
+            ),
             MatchPhase::Ready if !self.indexed => {
                 "桶里还没有这份索引：到「云端存档」页点一次「深度扫描云端」就能建。\
                  添加之后第一次上传时，它会自己认领云端那一条。"
@@ -262,6 +292,15 @@ mod tests {
         }
     }
 
+    /// 一次"问到了、而且刷新没出问题"的回包。
+    fn reply(indexed: bool, rows: Vec<CloudGameRow>) -> MatchReply {
+        MatchReply {
+            indexed,
+            refresh_error: None,
+            rows,
+        }
+    }
+
     /// 敲一个字就问一次云端是荒唐的：防抖到点之前什么都没有。
     #[test]
     fn typing_waits_and_only_the_last_edit_asks() {
@@ -284,7 +323,10 @@ mod tests {
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
         m.typing("/games/b/other.exe");
-        m.loaded("/games/a/game.exe", true, vec![row("c1", "旧的那一款")]);
+        m.loaded(
+            "/games/a/game.exe",
+            reply(true, vec![row("c1", "旧的那一款")]),
+        );
         assert_eq!(m.phase, MatchPhase::Idle);
         assert!(m.rows.is_empty(), "迟到的回包被丢掉了");
         m.failed("/games/a/game.exe", "网络不通".to_string());
@@ -297,11 +339,32 @@ mod tests {
         let mut m = AddMatch::default();
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, vec![row("c1", "那一款")]);
+        m.loaded("/games/a/game.exe", reply(true, vec![row("c1", "那一款")]));
         assert_eq!(m.phase, MatchPhase::Ready);
         assert_eq!(m.binding().map(|r| r.cloud_id.as_str()), Some("c1"));
         assert!(m.title().contains("那一款"));
         assert!(m.detail().contains("3 版"), "{}", m.detail());
+    }
+
+    /// **刷新失败 ≠ 云端没有这一款**（用户 2026-09-28 在 Windows 上踩的：桶名填成了
+    /// `kotori-win`，而 Linux 那边是 `kotori-saves`，kopia 回 `bucket not found` ——
+    /// 页面却说"云端没有这一款"，他就以为指纹匹配坏了，去做了手动匹配）。
+    #[test]
+    fn a_failed_refresh_says_so_instead_of_claiming_the_cloud_has_nothing() {
+        let mut m = AddMatch::default();
+        m.typing("/games/a/game.exe");
+        m.asking("/games/a/game.exe");
+        m.loaded(
+            "/games/a/game.exe",
+            MatchReply {
+                indexed: false,
+                refresh_error: Some("bucket not found: kotori-win".to_string()),
+                rows: Vec::new(),
+            },
+        );
+        assert!(m.title().contains("没能读到云端"), "{}", m.title());
+        assert!(!m.title().contains("没有这一款"), "{}", m.title());
+        assert!(m.detail().contains("bucket not found"), "{}", m.detail());
     }
 
     /// 多条命中**不猜**：列出来让用户挑（配对错了不可逆）。
@@ -312,8 +375,7 @@ mod tests {
         m.asking("/games/a/game.exe");
         m.loaded(
             "/games/a/game.exe",
-            true,
-            vec![row("c1", "一号"), row("c2", "二号")],
+            reply(true, vec![row("c1", "一号"), row("c2", "二号")]),
         );
         assert!(m.binding().is_none(), "还没挑就绝不绑");
         assert!(m.title().contains("2 条"));
@@ -330,7 +392,7 @@ mod tests {
         let mut m = AddMatch::default();
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, vec![row("c1", "那一款")]);
+        m.loaded("/games/a/game.exe", reply(true, vec![row("c1", "那一款")]));
         m.decline();
         assert!(m.binding().is_none(), "用户说了不是它");
         assert!(m.title().contains("不与云端绑定"), "{}", m.title());
@@ -348,12 +410,12 @@ mod tests {
         let mut m = AddMatch::default();
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", false, Vec::new());
+        m.loaded("/games/a/game.exe", reply(false, Vec::new()));
         assert!(m.title().contains("还没建索引"), "{}", m.title());
         assert!(m.detail().contains("深度扫描云端"), "{}", m.detail());
 
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, Vec::new());
+        m.loaded("/games/a/game.exe", reply(true, Vec::new()));
         assert!(m.title().contains("云端没有这一款"), "{}", m.title());
 
         m.asking("/games/a/game.exe");
@@ -369,7 +431,7 @@ mod tests {
         let mut m = AddMatch::default();
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, vec![row("c1", "那一款")]);
+        m.loaded("/games/a/game.exe", reply(true, vec![row("c1", "那一款")]));
         m.reset();
         assert!(!m.visible());
         assert!(m.rows.is_empty());
@@ -385,15 +447,15 @@ mod tests {
         m.asking("/games/a/game.exe");
 
         // 还没建索引 / 云端确实没有：没有候选，那按钮没有意义。
-        m.loaded("/games/a/game.exe", false, Vec::new());
+        m.loaded("/games/a/game.exe", reply(false, Vec::new()));
         assert!(!m.can_decline(), "还没建索引时它没有意义");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, Vec::new());
+        m.loaded("/games/a/game.exe", reply(true, Vec::new()));
         assert!(!m.can_decline(), "云端没有这一款时它没有意义");
 
         // 有候选时在；用户否掉之后换成"改主意"。
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, vec![row("c1", "那一款")]);
+        m.loaded("/games/a/game.exe", reply(true, vec![row("c1", "那一款")]));
         assert!(m.can_decline());
         m.decline();
         assert!(!m.can_decline());
@@ -406,7 +468,7 @@ mod tests {
         let mut m = AddMatch::default();
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, Vec::new());
+        m.loaded("/games/a/game.exe", reply(true, Vec::new()));
         assert!(m.binding().is_none(), "指纹没命中");
 
         m.pick(row("c9", "用户自己认出来的那一条"));
@@ -427,7 +489,10 @@ mod tests {
         let mut m = AddMatch::default();
         m.typing("/games/a/game.exe");
         m.asking("/games/a/game.exe");
-        m.loaded("/games/a/game.exe", true, vec![row("c1", "指纹说的那条")]);
+        m.loaded(
+            "/games/a/game.exe",
+            reply(true, vec![row("c1", "指纹说的那条")]),
+        );
         m.decline();
         assert!(m.binding().is_none());
 

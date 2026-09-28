@@ -11,6 +11,15 @@
 
 use super::*;
 
+/// 一次"问到了、刷新没出问题"的回包（与 `model::add` 的测试同一个形状）。
+fn match_reply(indexed: bool, rows: Vec<CloudGameRow>) -> MatchReply {
+    MatchReply {
+        indexed,
+        refresh_error: None,
+        rows,
+    }
+}
+
 /// 接管添加页（跑完把页面留在添加页上 —— 调用点在添加那一段的末尾）。
 pub(super) fn add_match_states(ui: &mut Ui) {
     show_tab(ui, Tab::Add);
@@ -51,8 +60,7 @@ pub(super) fn add_match_states(ui: &mut Ui) {
     // 唯一命中：名字与版本数写在标题里，候选列表**不列**（不让人多点一下）。
     ui.app.add_match.loaded(
         exe,
-        true,
-        vec![row("c1", "云端记下的游戏名（很长很长的那种）")],
+        match_reply(true, vec![row("c1", "云端记下的游戏名（很长很长的那种）")]),
     );
     render(ui);
     let board = ui.window.global::<AddMatchBoard>();
@@ -71,7 +79,7 @@ pub(super) fn add_match_states(ui: &mut Ui) {
     // 云端没有这一款（索引建过、指纹对不上）：**没有候选** ⇒ 不给「不是这一款」
     // （用户 2026-09-23 点的：那时按下去什么也没改变，该给的是「自己选…」）。
     ui.app.add_match.asking(exe);
-    ui.app.add_match.loaded(exe, true, Vec::new());
+    ui.app.add_match.loaded(exe, match_reply(true, Vec::new()));
     render(ui);
     let board = ui.window.global::<AddMatchBoard>();
     assert!(board.get_title().contains("云端没有这一款"));
@@ -80,7 +88,7 @@ pub(super) fn add_match_states(ui: &mut Ui) {
 
     // 桶里还没建过索引：这是另一句话（提示去深度扫描），也**不给**那个按钮。
     ui.app.add_match.asking(exe);
-    ui.app.add_match.loaded(exe, false, Vec::new());
+    ui.app.add_match.loaded(exe, match_reply(false, Vec::new()));
     render(ui);
     let board = ui.window.global::<AddMatchBoard>();
     assert!(
@@ -107,8 +115,10 @@ pub(super) fn add_match_states(ui: &mut Ui) {
     ui.app.add_match.asking(exe);
     ui.app.add_match.loaded(
         exe,
-        true,
-        vec![row("c1", "一号候选"), row("c2", "二号候选（名字更长一点）")],
+        match_reply(
+            true,
+            vec![row("c1", "一号候选"), row("c2", "二号候选（名字更长一点）")],
+        ),
     );
     render(ui);
     assert_eq!(

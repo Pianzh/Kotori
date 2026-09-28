@@ -129,6 +129,16 @@ impl App {
                         .ok()
                         .and_then(|value| value.get("cloud"))
                         .and_then(parse_sync_ask_cloud);
+                    // 第三种情况：**没读到云端**（桶名不对、网络不通、索引没建过）。它与
+                    // "云端没有这一款"必须分开说 —— 用户 2026-09-28 在 Windows 上就是因为
+                    // 两者混在一起，以为指纹匹配坏了（实情是桶名填成了 `kotori-win`）。
+                    self.sync_ask_trouble = result
+                        .as_ref()
+                        .ok()
+                        .and_then(|value| value.get("cloud_trouble"))
+                        .and_then(|value| value.as_str())
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string);
                     self.error = None;
                     return Task::none();
                 }

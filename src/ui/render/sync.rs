@@ -158,14 +158,25 @@ pub(super) fn push_sync_ask(ui: &mut Ui) {
     // 一句话说清现状：有像的就说有像的，没有就说没有 —— 用户 2026-09-24：文案要
     // "简短通俗、不要括号、不要废话"。云端那一条叫什么画在下面那块卡片里，名字与摘要
     // 由 `identity_label` 生成。
+    // 三种说法，不能混（用户 2026-09-28）：有像的 / **没读到云端** / 云端真的没有。
+    // ⚠ "没读到云端"排在"云端没有"前面 —— 那时我们**不知道**云端有没有这一款，说成
+    // "没有对得上的"就是把"没看到"当成了"没有"（他就是照那句话去做手动匹配的）。
     let message = if game.is_none() {
         ""
+    } else if ui.app.sync_ask_trouble.is_some() {
+        "没能读到云端，认不出来。"
     } else if ui.app.sync_ask_cloud.is_some() {
         "云端有一条像的，但不敢替你定。"
     } else {
         "云端没有对得上的。"
     };
     push_str(ask.get_message(), message, |v| ask.set_message(v));
+    // 原因原样带出去（daemon 已经拼成人话），空串 = 读到了、不用画。
+    push_str(
+        ask.get_cloud_trouble(),
+        ui.app.sync_ask_trouble.as_deref().unwrap_or_default(),
+        |v| ask.set_cloud_trouble(v),
+    );
     // "疑似找到的那一条"：名字与摘要走 `identity_label`（与单游戏页「当前绑定」**同一个
     // 函数**）；没有就是"完全没找到"，界面照实说、让用户自己挑。
     push_bool(

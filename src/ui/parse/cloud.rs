@@ -43,9 +43,20 @@ pub(in crate::ui) fn parse_cloud_list(value: &Value) -> Result<CloudListReply, S
 /// 与 [`parse_cloud_list`] 同形，差别只在**条数**：列表给的是云端全部，这里给的是
 /// 指纹对得上的那几条。`indexed == false` 时 `games` 恒空 —— 那表示桶里还没建过索引，
 /// 与"云端没有这一款"是两句话。
-pub(in crate::ui) fn parse_cloud_match(value: &Value) -> Result<(bool, Vec<CloudGameRow>), String> {
+pub(in crate::ui) fn parse_cloud_match(value: &Value) -> Result<MatchReply, String> {
     let (indexed, games) = indexed_and_games(value)?;
-    Ok((indexed, games.iter().map(parse_cloud_row).collect()))
+    // `refresh_error` **缺了也收**（与 `indexed`/`games` 那种"缺了就是坏回包"不同）：它是
+    // 个增益事实，不是判据 —— 缺了就是"这次没听说刷新失败"。
+    let refresh_error = value
+        .get("refresh_error")
+        .and_then(Value::as_str)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string);
+    Ok(MatchReply {
+        indexed,
+        refresh_error,
+        rows: games.iter().map(parse_cloud_row).collect(),
+    })
 }
 
 /// 两个回包共用的开头：`indexed` 缺了就是坏回包（"还没建索引"与"云端没有"绝不能混）。
@@ -214,22 +225,39 @@ mod tests {
                 "exe_paths": [], "local_id": "", "local_name": "", "rejected": false,
             }],
         });
-        let (indexed, rows) = parse_cloud_match(&payload).unwrap();
-        assert!(indexed);
-        assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].cloud_key, "sg", "认领要用它当落点");
-        assert_eq!(rows[0].cloud_id, "c1");
+        let reply = parse_cloud_match(&payload).unwrap();
+        assert!(reply.indexed);
+        assert_eq!(reply.rows.len(), 1);
+        assert_eq!(reply.rows[0].cloud_key, "sg", "认领要用它当落点");
+        assert_eq!(reply.rows[0].cloud_id, "c1");
         // 最近一版那行是"本机时区的时间 + 大小"（时区随机器变，所以只钉大小）。
         assert!(
-            rows[0].latest_label().contains("1.0 KiB"),
+            reply.rows[0].latest_label().contains("1.0 KiB"),
             "{}",
-            rows[0].latest_label()
+            reply.rows[0].latest_label()
+        );
+        assert!(
+            reply.refresh_error.is_none(),
+            "回包里没有这一栏 = 没听说刷新失败（它不是判据，不该因此报错）"
         );
 
-        let (indexed, rows) =
+        let reply =
             parse_cloud_match(&serde_json::json!({ "indexed": false, "games": [] })).unwrap();
-        assert!(!indexed, "桶里还没索引");
-        assert!(rows.is_empty());
+        assert!(!reply.indexed, "桶里还没索引");
+        assert!(reply.rows.is_empty());
         assert!(parse_cloud_match(&serde_json::json!({ "games": [] })).is_err());
+
+        // **刷新失败要跟着回包出来**（用户 2026-09-28 在 Windows 上踩的：桶名填错，
+        // 索引根本刷不了，而页面说"云端没有这一款"）。
+        let reply = parse_cloud_match(&serde_json::json!({
+            "indexed": true,
+            "refresh_error": "bucket not found: kotori-win",
+            "games": [],
+        }))
+        .unwrap();
+        assert_eq!(
+            reply.refresh_error.as_deref(),
+            Some("bucket not found: kotori-win")
+        );
     }
 }

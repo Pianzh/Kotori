@@ -23,6 +23,12 @@ export global SyncAskState {
     /// 那一条叫什么、以及下面那行摘要（都由 `model::cloud::identity_label` 生成）。
     in-out property <string> cloud-name: "";
     in-out property <string> cloud-summary: "";
+    /// **没读到云端**时的原因（桶名不对、网络不通、索引还没建过）。空串 = 读到了。
+    ///
+    /// 用户 2026-09-28 在 Windows 上踩的：桶名填成了 `kotori-win`，而 Linux 那边是
+    /// `kotori-saves`，kopia 回 `bucket not found`，弹窗却只说"云端没有对得上的" —— 把
+    /// "没看到"说成了"没有"，他就去手动匹配了。这是**第三种说法**，与"没找到像的"分开。
+    in-out property <string> cloud-trouble: "";
 
     /// 用户的回答:`pair`(新建一条) / `off`(关掉这一款的同步)。两个回答之后都会接着启动。
     ///
@@ -123,6 +129,16 @@ export component SyncAskDialog inherits Rectangle {
                     text: SyncAskState.message;
                     font-size: 12px;
                     color: Tokens.text-3;
+                    wrap: word-wrap;
+                }
+
+                // **没读到云端**时把原因原样说出来（一般是引擎的原话，可能很长，所以单独
+                // 一块、可折行）。它与上面那句是两回事：上面说"认不出来"，这里说"为什么
+                // 认不出来" —— 用户照这句话就知道该去改桶名还是去查网络。
+                if SyncAskState.cloud-trouble != "" : Text {
+                    text: SyncAskState.cloud-trouble;
+                    font-size: 11px;
+                    color: Tokens.danger;
                     wrap: word-wrap;
                 }
 

@@ -33,6 +33,10 @@ pub struct App {
     pub(super) sync_new_pending: bool,
     /// 启动前那一问里"疑似找到的那一条"（`None` = 完全没找到，界面照实说）。
     pub(super) sync_ask_cloud: Option<SyncAskCloud>,
+    /// 那一问"为什么没认出来"里的**第三种情况**：没读到云端（桶名不对、网络不通、
+    /// 索引没建过）。`Some` 时界面要说"没读到云端"，而不是"云端没有对得上的" ——
+    /// 用户 2026-09-28 在 Windows 上踩的就是这个（桶名填成了 `kotori-win`）。
+    pub(super) sync_ask_trouble: Option<String>,
     pub(super) selected: Option<String>,
     pub(super) draft: Option<Draft>,
     pub(super) saving: bool,
@@ -142,6 +146,7 @@ impl App {
                 sync_ask_hidden: false,
                 sync_new_pending: false,
                 sync_ask_cloud: None,
+                sync_ask_trouble: None,
                 daemon_socket: socket,
                 daemon_connected: None,
                 loading: false,

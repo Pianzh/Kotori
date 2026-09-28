@@ -72,7 +72,7 @@ impl App {
             }
             Message::MatchLoaded(exe, result) => {
                 match result {
-                    Ok((indexed, rows)) => self.add_match.loaded(&exe, indexed, rows),
+                    Ok(reply) => self.add_match.loaded(&exe, reply),
                     // 问不成不是错误状态:页面上照旧能点「添加游戏」(见 `model::add`)。
                     Err(e) => self.add_match.failed(&exe, e),
                 }

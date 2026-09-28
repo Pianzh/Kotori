@@ -42,6 +42,10 @@ impl Daemon {
             rows::locals(&config)
         };
         let indexed = view.index.is_some();
+        // ⚠ 刷新失败**必须跟着回包一起出去**（与 `sync.status` 同一条规矩）："云端没有这一款"
+        // 与"手上这份索引是旧的、这次没刷新成功"是两回事 —— 用户 2026-09-28 在 Windows 上踩
+        // 的那次（桶名填成了 `kotori-win`，而 Linux 那边是 `kotori-saves`）正是分不清这两者。
+        let refresh_error = view.refresh_error;
         let games: Vec<Value> = view
             .index
             .unwrap_or_default()
@@ -57,6 +61,7 @@ impl Daemon {
             "indexed": indexed,
             "from_cache": view.from_cache,
             "cached_at": view.cached_at,
+            "refresh_error": refresh_error,
             "fingerprint": fingerprint,
             "games": games,
         }))

@@ -33,6 +33,14 @@ pub struct CloudPeek {
 pub enum Found {
     /// 没命中（包括指纹还没算出来）。
     None,
+    /// **没能看到云端**：索引读不到、桶名不对、桶里还没有索引、或者刷新失败只剩旧缓存。
+    ///
+    /// ⚠ 与 [`Found::None`] 分开是刻意的（用户 2026-09-28 在 Windows 上报的"明明是一模一样
+    /// 的 exe，却没有匹配，甚至连疑似匹配都没有"）：他那天把桶名填成了 `kotori-win`，而
+    /// Linux 那边是 `kotori-saves`，kopia 回的是 `bucket not found` —— 而界面只说"云端没有
+    /// 对得上的"，把**没读到**说成了**没有**。两者的下一步完全不同：一个是"云端确实还没有
+    /// 这一款（去第一次上传）"，另一个是"你先把桶名/网络弄对"。
+    Unavailable(String),
     /// 恰好命中一条，而且这条身份还没被本机别的档案认领。
     One { cloud_id: String, cloud_key: String },
     /// 命中多条，或者命中的那条已经被本机别的档案占着 —— 都要问。带上的那几条是给弹窗挑
@@ -52,8 +60,12 @@ pub enum Decision {
     /// 不再问：直接新建一条身份（用户自己把"关掉过"的那款开关重新打开了）。
     Fresh,
     /// 问一次。`found` = **疑似找到的那一条**；`None` = 完全没找到，界面照实说、
-    /// 让你自己挑。
-    Ask { found: Option<CloudPeek> },
+    /// 让你自己挑。`trouble` = **为什么没认出来**：`Some` 表示"没读到云端"（桶名不对、
+    /// 网络不通、索引没建过），与"云端真的没有这一款"是两回事（见 [`Found::Unavailable`]）。
+    Ask {
+        found: Option<CloudPeek>,
+        trouble: Option<String>,
+    },
 }
 
 /// 要不要为了这次自检去**读云端**（kopia 那边读一次身份 = 一次 restore）。
@@ -117,6 +129,7 @@ where
     }
 
     // 4. 仍未定：按指纹在当前桶里找一次（这是唯一会读云端的一步）。
+    let mut trouble = None;
     if needs_cloud(game, Some(signature)) {
         match lookup() {
             Found::One {
@@ -132,13 +145,16 @@ where
             // 现在是取第一条）。一条都没带（"唯一那条被本机别的档案占着"）就是 `None`。
             Found::Many(candidates) => {
                 let found = crate::sync::matching::best_like(&candidates).cloned();
-                return ask_or_fresh(conclusion.as_ref(), found);
+                return ask_or_fresh(conclusion.as_ref(), found, None);
             }
+            // 没读到云端：**与"云端没有"分开报**。行为一个字都不变 —— 照旧问一次
+            // （自检绝不拦启动，见模块说明第 1 条）。
+            Found::Unavailable(reason) => trouble = Some(reason),
             Found::None => {}
         }
     }
 
-    ask_or_fresh(conclusion.as_ref(), None)
+    ask_or_fresh(conclusion.as_ref(), None, trouble)
 }
 
 /// 最后一步：问一次 —— **除非**他上次就答过"关掉这一款"或"以后新建一条"（那两次都已经
@@ -149,11 +165,18 @@ where
 /// `found` 是"疑似找到的那一条"（没有就是完全没找到）—— 界面据此分两种说法，用户
 /// 2026-09-24："直接把找到像的和没找到像的打包成函数或者条件，分别显示疑似找到和完全
 /// 没找到两个 ui"。
-fn ask_or_fresh(conclusion: Option<&Conclusion>, found: Option<CloudPeek>) -> Decision {
+///
+/// `trouble` 是**第三种说法**（用户 2026-09-28）：不是"没有像的"，而是"压根没读到云端"。
+/// 只在没命中时才可能非空 —— 命中了就是命中了，本机缓存旧一点也是强证据。
+fn ask_or_fresh(
+    conclusion: Option<&Conclusion>,
+    found: Option<CloudPeek>,
+    trouble: Option<String>,
+) -> Decision {
     match conclusion {
         // 问过一次、答案是"关掉这一款"或者"以后新建一条"：都不再问，直接新建身份。
         Some(Conclusion::Declined(_)) | Some(Conclusion::New(_)) => Decision::Fresh,
-        _ => Decision::Ask { found },
+        _ => Decision::Ask { found, trouble },
     }
 }
 
@@ -228,7 +251,10 @@ mod tests {
         );
         assert_eq!(
             decide(&game, Some(SIG), || Found::None),
-            Decision::Ask { found: None }
+            Decision::Ask {
+                found: None,
+                trouble: None
+            }
         );
     }
 
@@ -248,11 +274,17 @@ mod tests {
         // 一条" —— 完全没找到就不编名字。
         assert_eq!(
             decide(&game, Some(SIG), || Found::None),
-            Decision::Ask { found: None }
+            Decision::Ask {
+                found: None,
+                trouble: None
+            }
         );
         assert_eq!(
             decide(&game, Some(SIG), || Found::Many(Vec::new())),
-            Decision::Ask { found: None }
+            Decision::Ask {
+                found: None,
+                trouble: None
+            }
         );
     }
 
@@ -261,7 +293,44 @@ mod tests {
         let game = game();
         assert_eq!(
             decide(&game, Some(SIG), || panic!("没有指纹就不该去查")),
-            Decision::Ask { found: None }
+            Decision::Ask {
+                found: None,
+                trouble: None
+            }
+        );
+    }
+
+    /// **没读到云端 ≠ 云端没有这一款**（用户 2026-09-28 在 Windows 上报的那次：桶名填成
+    /// `kotori-win`，而 Linux 那边是 `kotori-saves`，kopia 回 `bucket not found`，界面却说
+    /// "云端没有对得上的"）。
+    ///
+    /// 行为与 `Found::None` 一个字都不差（照旧问一次、绝不拦启动），差别只在**带出去的
+    /// 原因**：界面照它说"没读到云端"，而不是"云端没有"。
+    #[test]
+    fn not_reading_the_cloud_is_reported_as_such_not_as_an_empty_cloud() {
+        let mut game = game();
+        game.exe_fingerprint = Some("v1:1:aa".into());
+        assert_eq!(
+            decide(&game, Some(SIG), || Found::Unavailable(
+                "bucket not found: kotori-win".into()
+            )),
+            Decision::Ask {
+                found: None,
+                trouble: Some("bucket not found: kotori-win".into()),
+            }
+        );
+    }
+
+    /// 读不到云端**不许翻案**：他上次答过"关掉这一款"，照旧直接新建 —— 这条原因只影响
+    /// 说法，不影响结论。
+    #[test]
+    fn a_cloud_that_cannot_be_read_does_not_overrule_a_standing_answer() {
+        let mut game = game();
+        game.exe_fingerprint = Some("v1:1:aa".into());
+        game.cloud_conclusion = Some(Conclusion::declined(SIG));
+        assert_eq!(
+            decide(&game, Some(SIG), || Found::Unavailable("网络不通".into())),
+            Decision::Fresh
         );
     }
 
@@ -335,7 +404,8 @@ mod tests {
                 peek("c2", "二号"),
             ])),
             Decision::Ask {
-                found: Some(peek("c1", "一号"))
+                found: Some(peek("c1", "一号")),
+                trouble: None,
             },
             "带上的必须是第一条（`best_like` 现在的规则）"
         );

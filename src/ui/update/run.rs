@@ -90,6 +90,7 @@ impl App {
         self.sync_ask_hidden = false;
         // 这一问结束了：云端那条"疑似找到的"事实也跟着作废（下次问会重新带一份）。
         self.sync_ask_cloud = None;
+        self.sync_ask_trouble = None;
         self.launching = Some(game_id.clone());
         let socket = self.daemon_socket.clone();
         // 回答会改这一款的状态（暂时关掉同步 / 新建身份），**界面得跟着变**：游戏列表与
@@ -132,6 +133,7 @@ impl App {
         self.sync_ask_hidden = false;
         // 这一问结束了：云端那条"疑似找到的"事实也跟着作废（下次问会重新带一份）。
         self.sync_ask_cloud = None;
+        self.sync_ask_trouble = None;
         self.launching = Some(game_id.clone());
         let socket = self.daemon_socket.clone();
         // 绑上之后界面也要跟着变（游戏列表 + 同步状态，尤其是单游戏页那行"当前绑定"）。

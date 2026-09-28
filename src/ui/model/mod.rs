@@ -31,6 +31,9 @@ pub use session::SessionInfo;
 pub use sync::{SyncGameRow, SyncStatus};
 
 pub(super) use add::{AddMatch, MATCH_DEBOUNCE, MatchPhase};
+// `MatchReply` 是 `Message` 的载荷之一（`Message` 自己是 `pub(crate)`），所以它得跟着放宽到
+// `pub(crate)`，否则 clippy 报"类型比用到它的那个字段更私有"（同下面的 `SaveScope`）。
+pub(crate) use add::MatchReply;
 pub(super) use cloud::{CloudGameRow, CloudListReply, CloudState, CloudVersionRow};
 pub(super) use cloud_version::CloudVersionState;
 // `Confirmation` 是三个页面共用的弹窗措辞；它只活在 `crate::ui` 里。

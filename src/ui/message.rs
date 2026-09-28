@@ -166,7 +166,9 @@ pub enum Message {
     /// 添加页的云端匹配:防抖到点(`MatchExeReady` 带回当时那个 exe,已经不是当前值就丢掉)、
     /// 回包、挑一条、「不是这一款」、改主意(见 `model::add`)。
     MatchExeReady(String),
-    MatchLoaded(String, Result<(bool, Vec<CloudGameRow>), String>),
+    /// 回包里带着三个事实（建过索引没有 / 这次刷新成不成 / 命中的几行），见 `MatchReply` ——
+    /// "索引是旧的"与"云端没有这一款"必须分得开。
+    MatchLoaded(String, Result<MatchReply, String>),
     MatchChoose(String),
     MatchDecline,
     MatchUndoDecline,
