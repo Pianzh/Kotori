@@ -494,8 +494,12 @@ fn the_activity_bar_shows_what_is_running_and_what_just_finished() {
     );
 
     // 挂上一件事：左边说"正在…"，右边**空着**（一行里塞两件事就分不清哪句是现在）。
+    // 用 `App::activity` 挂（它是唯一挂它们的地方），别手工赋 `app.activity` —— 那样世代号
+    // 不动，测的东西跟线上跑的不是一条路。
     app.activity_done = Some("上次那件事完成".into());
-    app.activity = Some(Activity::new("拉取云端索引"));
+    let _task = app.activity("拉取云端索引", async {}, |_| {
+        Message::ClearError(u64::MAX)
+    });
     assert_eq!(
         app.activity_bar(),
         ("正在拉取云端索引…".to_string(), String::new())
@@ -521,10 +525,19 @@ fn the_activity_bar_shows_what_is_running_and_what_just_finished() {
 #[test]
 fn a_late_activity_finish_never_clears_the_one_running_now() {
     let (mut app, _task) = App::new();
-    app.activity = Some(Activity::new("第一件"));
-    let first = app.activity_generation;
 
-    app.activity = Some(Activity::new("第二件"));
+    // 两件事各挂一次 —— `App::activity` 是唯一挂它们的地方，它每次都会推进世代号。
+    // ⚠ 这里从前是**手工**赋 `app.activity`，那样世代号根本没动，于是"迟到的收尾"在测试里
+    // 反倒成了当前那一件，CI 上直接红（2026-09-28）。
+    let _first = app.activity("第一件", async {}, |_| Message::ClearError(u64::MAX));
+    let first = app.activity_generation;
+    let _second = app.activity("第二件", async {}, |_| Message::ClearError(u64::MAX));
+    assert_ne!(
+        first, app.activity_generation,
+        "两件事的世代号必须不同，否则这道闸门形同虚设"
+    );
+
+    // 第一件迟到的收尾：不许把正在跑的第二件抹掉。
     app.update(Message::ActivityFinished(
         first,
         "第一件".into(),
