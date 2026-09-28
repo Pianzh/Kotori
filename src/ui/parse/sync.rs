@@ -43,6 +43,15 @@ pub(in crate::ui) fn parse_sync_status(value: &Value) -> Result<SyncStatus, Stri
                         .get("location_problem")
                         .and_then(|v| v.as_str())
                         .map(str::to_string),
+                    // `auto_upload_blocked` 是 `null`（会自动传）或 `{reason, detail}`。
+                    // 界面要的是那句人话（`detail`），`reason` 是给日志与测试用的机器码。
+                    auto_upload_blocked: row
+                        .get("auto_upload_blocked")
+                        .filter(|value| !value.is_null())
+                        .and_then(|value| value.get("detail"))
+                        .and_then(|v| v.as_str())
+                        .filter(|text| !text.is_empty())
+                        .map(str::to_string),
                     cloud_id: str_field(row, "cloud_id"),
                     cloud_key: str_field(row, "cloud_key"),
                     cloud_name: str_field(row, "cloud_name"),
@@ -216,6 +225,17 @@ mod tests {
         assert_eq!(status.store_kind, "system");
         assert!(!status.store_locked);
         assert_eq!(status.store(), CredentialStore::System);
+
+        // "这一款退出后不会自动上传"要能读出来（用户 2026-09-28 在 Windows 上找不到
+        // "退出时为什么没传"的答案，就是因为界面上从来没有这一栏）。
+        assert_eq!(
+            status.games[0].auto_upload_blocked.as_deref(),
+            Some("这一款的「参与云同步」关着（单游戏设置页）")
+        );
+        assert!(
+            status.games[1].auto_upload_blocked.is_none(),
+            "没有这一栏（或为 null）= 会自动传，不许编一句话"
+        );
 
         // 明文文件那一级(现在的默认):路径要能取到,不然页面说不出"存在哪"。
         let plain = parse_sync_status(&serde_json::json!({

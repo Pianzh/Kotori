@@ -124,6 +124,10 @@ mod test_support {
                     "name": "Demo",
                     "locations": 2,
                     "location_problem": null,
+                    "auto_upload_blocked": {
+                        "reason": "per_game_off",
+                        "detail": "这一款的「参与云同步」关着（单游戏设置页）"
+                    },
                     "last": {
                         "at": "2026-09-11T10:15:00Z",
                         "ok": true,

@@ -30,6 +30,13 @@ pub struct SyncGameRow {
     /// Set when a save location cannot be resolved right now (unplugged disk,
     /// removed prefix) — better to say so than to fail at sync time.
     pub problem: Option<String>,
+    /// **退出后不会自动上传**的原因（`None` = 会自动传）。
+    ///
+    /// 用户 2026-09-28 在 Windows 上报的"退出时没有自动上传"就是它：四道闸门（总开关、
+    /// 这一款的开关、没配存档位置、位置解析不出来）里任意一道关着，退出后都不会传，
+    /// 而手动「立即同步」**不受**这些闸门限制 —— 于是"手动能传、自动不传"，界面上却
+    /// 一个字都不说。这里是 daemon 用 `exit_upload_gate` 算出来的原话。
+    pub auto_upload_blocked: Option<String>,
     /// Human-readable "when and how it went" for the last sync.
     pub last: Option<String>,
     /// 这一款现在绑的云端身份（空 = 还没绑）。单游戏页要显示它，并且能换绑。

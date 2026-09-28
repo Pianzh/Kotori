@@ -373,6 +373,7 @@ fn library_and_sync_pages_render_without_a_display() {
             name: "Demo".into(),
             locations: 0,
             problem: Some("存档位置「%NOPE%」解析不了".into()),
+            auto_upload_blocked: Some("云同步总开关关着（设置页「连接与保留」）".into()),
             last: Some("× 2026-09-11T10:15 √".into()),
             cloud_id: "8f2c1234-0000-0000-0000-000000000000".into(),
             cloud_key: "demo".into(),

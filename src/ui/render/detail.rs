@@ -261,6 +261,11 @@ fn sync_line(app: &App, row: Option<&SyncGameRow>) -> String {
     if app.sync_status.is_none() {
         return "读取中…".to_string();
     }
+    sync_line_for(row)
+}
+/// 上面那行的**纯**那一半：只按这一行说话，不看"状态读到没有"。拆出来是为了能直接测
+/// 那几句文案 —— 尤其是"退出后不会自动上传"那一种（用户 2026-09-28 在 Windows 上报的）。
+fn sync_line_for(row: Option<&SyncGameRow>) -> String {
     match row {
         None => "守护进程还没报这个游戏的存档位置".to_string(),
         Some(row) if row.problem.is_some() => {
@@ -269,6 +274,15 @@ fn sync_line(app: &App, row: Option<&SyncGameRow>) -> String {
         Some(row) if row.locations == 0 => {
             "还没有配置存档位置 —— 上面先加一条,同步才有东西可传。".to_string()
         }
+        // ⚠ **退出后不会自动上传**必须说出来（用户 2026-09-28 在 Windows 上报的"退出时
+        // 没有自动上传"）：手动「立即同步」不受这些闸门限制，所以"手动能传、自动不传"，
+        // 而从前界面上一个字都不说 —— 那一款的开关是自己点弹窗关掉的，看不出因果。
+        Some(row) if row.auto_upload_blocked.is_some() => format!(
+            "{} 个存档位置 · {} · ⚠ 退出后不会自动上传：{}",
+            row.locations,
+            row.last_label(),
+            row.auto_upload_blocked.as_deref().unwrap_or_default()
+        ),
         Some(row) => format!("{} 个存档位置 · {}", row.locations, row.last_label()),
     }
 }
@@ -366,5 +380,37 @@ mod tests {
         let mut game = ui_game();
         game.algo = "Lanczos".into();
         assert_eq!(game_detail(&game).algo, 0);
+    }
+
+    /// **退出后不会自动上传**必须在那行字里说出来。
+    ///
+    /// 用户 2026-09-28 在 Windows 上报的"退出时没有自动上传"就是这个：四道闸门（总开关、
+    /// 这一款的开关、没配存档位置、位置解析不出来）里任意一道关着，退出后都不会传，而手动
+    /// 「立即同步」**不受**限制 —— 于是"手动能传、自动不传"，界面上却一个字都不说。
+    #[test]
+    fn the_sync_line_says_when_the_exit_upload_is_blocked() {
+        let row = SyncGameRow {
+            id: "demo".into(),
+            name: "Demo".into(),
+            locations: 2,
+            last: Some("√ 2026-09-11T10:15 上传".into()),
+            auto_upload_blocked: Some("这一款的「参与云同步」关着（单游戏设置页）".into()),
+            ..SyncGameRow::default()
+        };
+        let line = sync_line_for(Some(&row));
+        assert!(line.contains("退出后不会自动上传"), "{line}");
+        assert!(
+            line.contains("参与云同步"),
+            "原因要原样带出来，用户才知道去哪打开：{line}"
+        );
+
+        // 没有这道闸门时**不许**出现这句话（默认那一路照旧）。
+        let open = SyncGameRow {
+            auto_upload_blocked: None,
+            ..row.clone()
+        };
+        let line = sync_line_for(Some(&open));
+        assert!(!line.contains("退出后不会自动上传"), "{line}");
+        assert!(line.contains("2 个存档位置"), "{line}");
     }
 }
