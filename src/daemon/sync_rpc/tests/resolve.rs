@@ -57,18 +57,28 @@ async fn switching_one_game_off_stops_its_automatic_sync_only() {
 async fn the_pre_launch_self_check_asks_once_and_remembers_the_answer() {
     use crate::sync::selfcheck::Decision;
 
+    /// 夹具里没有 kopia/rclone，"读云端"必然失败 ⇒ `trouble` 一定有值（界面据此说
+    /// "没读到云端"，而不是"云端没有"）。这里只钉"问了、而且没有疑似的那一条"。
+    ///
+    /// ⚠ 从前钉的是 `trouble: None`：那时没指纹就**不去读**云端。用户 2026-09-28 报的
+    /// "连疑似匹配都没有"让 `needs_cloud` 放宽成"有名字也读一次"，这条断言得跟着改说
+    /// "读不到要说得出原因"。
+    fn asks_without_a_candidate(decision: Decision) {
+        match decision {
+            Decision::Ask { found, trouble } => {
+                assert!(found.is_none(), "不该有疑似的那一条：{found:?}");
+                assert!(trouble.is_some(), "读不到云端要说得出原因");
+            }
+            other => panic!("该问一次，而不是 {other:?}"),
+        }
+    }
+
     let fake = FakeTool::new("selfcheck");
     let (daemon, _) = daemon_at(fake.keyring());
     let signature = crate::sync::signature::of(&daemon.config.read().await.sync).unwrap();
 
     // 新档案、没有指纹：认不出云端那一条 ⇒ **问一次**（不带"疑似找到的那一条"）。
-    assert_eq!(
-        daemon.sync_selfcheck("demo").await,
-        Decision::Ask {
-            found: None,
-            trouble: None
-        }
-    );
+    asks_without_a_candidate(daemon.sync_selfcheck("demo").await);
 
     // "自己挑一条绑上"：绑上云端那一条 ⇒ 结论是"已确认"，而且**真的绑着**。
     let value = call(
@@ -96,13 +106,7 @@ async fn the_pre_launch_self_check_asks_once_and_remembers_the_answer() {
         r#"{"bucket":"another-bucket"}"#,
     )
     .await;
-    assert_eq!(
-        daemon.sync_selfcheck("demo").await,
-        Decision::Ask {
-            found: None,
-            trouble: None
-        }
-    );
+    asks_without_a_candidate(daemon.sync_selfcheck("demo").await);
 
     // "关掉这一款的同步"：只关这一款，而且记住"问过了"。
     let value = call(&daemon, "sync.resolve", r#"{"id":"demo","choice":"off"}"#).await;
@@ -132,13 +136,7 @@ async fn the_pre_launch_self_check_asks_once_and_remembers_the_answer() {
             "重新打开要把上次那份结论清掉"
         );
     }
-    assert_eq!(
-        daemon.sync_selfcheck("demo").await,
-        Decision::Ask {
-            found: None,
-            trouble: None
-        }
-    );
+    asks_without_a_candidate(daemon.sync_selfcheck("demo").await);
 }
 
 #[tokio::test]

@@ -306,11 +306,20 @@ mod tests {
         );
     }
 
+    /// 没有指纹**也要问一次** —— 而且问之前会去读一次索引（名字这条弱判据就靠它）。
+    ///
+    /// ⚠ 这条从前钉的是"没有指纹就不该去查"（闭包直接 `panic!`）：那时 `needs_cloud` 要求
+    /// 必须有指纹，于是没指纹的档案连一个候选都不会有 —— 用户 2026-09-28 报的"连疑似匹配
+    /// 都没有"就是这个。现在弱判据也算数，所以那个闭包会被**真的调用**。
     #[test]
     fn a_game_without_a_fingerprint_is_asked_instead_of_guessed() {
         let game = game();
+        assert!(
+            needs_cloud(&game, Some(SIG)),
+            "没指纹也要读一次索引：名字这条弱判据就靠它"
+        );
         assert_eq!(
-            decide(&game, Some(SIG), || panic!("没有指纹就不该去查")),
+            decide(&game, Some(SIG), || Found::None),
             Decision::Ask {
                 found: None,
                 trouble: None
