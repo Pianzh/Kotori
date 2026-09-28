@@ -38,8 +38,12 @@ pub(super) fn daemon(keyring: Keyring) -> Daemon {
     daemon_at(keyring).0
 }
 
-/// 同上，但把配置文件的路径也交出来 —— 单测要断言"写下去的东西真的落盘了"。
-pub(super) fn daemon_at(keyring: Keyring) -> (Daemon, PathBuf) {
+/// 一份**带着 `demo` 这一款**的测试配置。
+///
+/// 与 [`daemon_config`] 的区别就是多那一款。判据那一族（`tests/exit_upload.rs`）要拿一款
+/// 真的存在的游戏来问：只有 `[sync]` 那一段的话，"这一款的开关"与"存档位置"两问都答不了 ——
+/// 而那恰好是用户真正会踩的两道闸门。
+pub(super) fn demo_config() -> Config {
     let mut config = Config::default();
     config.sync.enabled = true;
     config.sync.endpoint = String::new();
@@ -68,6 +72,12 @@ pub(super) fn daemon_at(keyring: Keyring) -> (Daemon, PathBuf) {
             created_at: chrono::Utc::now(),
         },
     );
+    config
+}
+
+/// 同上，但把配置文件的路径也交出来 —— 单测要断言"写下去的东西真的落盘了"。
+pub(super) fn daemon_at(keyring: Keyring) -> (Daemon, PathBuf) {
+    let config = demo_config();
     // Tests own a throw-away config file: the daemon persists every settings
     // change, and the machine-wide config is not theirs to touch.
     let dir = std::env::temp_dir().join(format!(

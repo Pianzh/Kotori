@@ -20,7 +20,7 @@
 //! 变成测试的前提。
 
 use super::super::{ExitUpload, SkipReason, exit_upload_gate};
-use super::{call, daemon_at, daemon_config};
+use super::{call, daemon_at, demo_config};
 use crate::config::Config;
 use crate::secrets::testing::FakeTool;
 
@@ -37,7 +37,7 @@ fn with_game(config: &Config, edit: impl FnOnce(&mut crate::config::GameConfig))
 /// 从前只有 `()` 可言，"没传"是"不该传"还是"没传成"谁也分不出来。
 #[test]
 fn the_per_game_switch_names_itself_instead_of_saying_nothing() {
-    let config = with_game(&daemon_config(), |game| game.sync_enabled = false);
+    let config = with_game(&demo_config(), |game| game.sync_enabled = false);
 
     let refusal = exit_upload_gate("demo", &config).expect_err("关掉这一款就该被挡下");
     assert_eq!(
@@ -54,7 +54,7 @@ fn the_per_game_switch_names_itself_instead_of_saying_nothing() {
 /// 总开关关着也要有自己的说法 —— 这条早退路**从前连日志都没有**。
 #[test]
 fn the_global_switch_is_reported_too() {
-    let mut config = daemon_config();
+    let mut config = demo_config();
     config.sync.enabled = false;
 
     let refusal = exit_upload_gate("demo", &config).expect_err("总开关关着就该被挡下");
@@ -69,7 +69,7 @@ fn the_global_switch_is_reported_too() {
 /// 没填存档位置：说"没填位置"，而不是含糊的"跳过上传"。
 #[test]
 fn a_game_without_save_locations_says_what_is_missing() {
-    let config = with_game(&daemon_config(), |game| game.save_paths.clear());
+    let config = with_game(&demo_config(), |game| game.save_paths.clear());
 
     let refusal = exit_upload_gate("demo", &config).expect_err("没填位置就该被挡下");
     assert_eq!(
@@ -88,7 +88,7 @@ fn a_game_without_save_locations_says_what_is_missing() {
 /// 而用户能做的事完全相反（该去建这条档案，不是去打开开关）。
 #[test]
 fn a_game_missing_from_the_config_is_not_reported_as_a_closed_switch() {
-    let config = daemon_config();
+    let config = demo_config();
 
     let refusal = exit_upload_gate("ghost", &config).expect_err("配置里没有就该说没有");
     assert_eq!(
@@ -106,7 +106,7 @@ fn a_game_missing_from_the_config_is_not_reported_as_a_closed_switch() {
 /// 的话，"报了存档位置没填"而"开关其实关着"会把用户引到一件他不需要做的事上。
 #[test]
 fn the_switch_wins_over_the_missing_locations_so_the_message_stays_useful() {
-    let config = with_game(&daemon_config(), |game| {
+    let config = with_game(&demo_config(), |game| {
         game.sync_enabled = false;
         game.save_paths.clear();
     });
@@ -118,7 +118,7 @@ fn the_switch_wins_over_the_missing_locations_so_the_message_stays_useful() {
 /// 一切就绪时交出该用的设置（总开关开着、这一款开着、位置填了）。
 #[test]
 fn a_ready_game_gets_its_settings_back() {
-    let config = daemon_config();
+    let config = demo_config();
 
     let settings = exit_upload_gate("demo", &config).expect("默认就该是通的");
     assert_eq!(settings.bucket, "bkt");
