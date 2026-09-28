@@ -95,6 +95,13 @@ fn push_shell(ui: &mut Ui) {
     );
     push_bool(w.get_loading(), app.loading, |v| w.set_loading(v));
     push_bool(w.get_saving(), app.saving, |v| w.set_saving(v));
+    // 底部状态栏：**现在在干什么** + 刚干完什么、花了多久（用户 2026-09-28 要的
+    // "kotori 当前状态"，理由与"为什么不报百分比"写在 `model::activity` 顶上）。
+    let (activity, activity_done) = app.activity_bar();
+    push_str(w.get_activity(), &activity, |v| w.set_activity(v));
+    push_str(w.get_activity_done(), &activity_done, |v| {
+        w.set_activity_done(v)
+    });
 }
 /// The sidebar's connection line, in the words the old GUI used.
 ///

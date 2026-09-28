@@ -64,7 +64,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "切换同步引擎",
                     async move { save_sync_engine(&socket, &engine).await },
                     Message::SyncEngineSaved,
                 )
@@ -95,7 +96,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "保存仓库密码",
                     async move { save_kopia_password(&socket, password.trim()).await },
                     Message::SyncKopiaPasswordSaved,
                 )
@@ -122,7 +124,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "保存同步设置",
                     async move { save_sync_settings(&socket, form.patch()).await },
                     Message::SyncSettingsSaved,
                 )
@@ -159,7 +162,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "保存云端凭据",
                     async move { save_sync_credentials(&socket, &key_id, &app_key).await },
                     Message::SyncCredentialsSaved,
                 )
@@ -181,7 +185,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "清除云端凭据",
                     async move { save_sync_credentials(&socket, "", "").await },
                     Message::SyncCredentialsCleared,
                 )
@@ -206,7 +211,11 @@ impl App {
                 // 都有这句,是这一个漏了。
                 self.sync_form.msg = Some("正在测试连接…".to_string());
                 let socket = self.daemon_socket.clone();
-                Task::perform(async move { sync_test(&socket).await }, Message::SyncTested)
+                self.activity(
+                    "测试云连接",
+                    async move { sync_test(&socket).await },
+                    Message::SyncTested,
+                )
             }
             // 单游戏页那颗「参与云同步」开关：立即存（它只发 `game.update` 的一个字段，
             // 不走那条自动保存的草稿路 —— 别的编辑一个都不会被带上）。
@@ -219,7 +228,8 @@ impl App {
                     game.sync_enabled = enabled;
                 }
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "改这一款的同步开关",
                     async move { set_game_sync_enabled(&socket, id, enabled).await },
                     move |result| Message::SyncParticipatingSaved(enabled, result),
                 )
@@ -253,7 +263,8 @@ impl App {
                 self.sync_new_pending = false;
                 self.cloud_pick.open(CloudPickPurpose::Rebind);
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "拉取云端清单",
                     async move { cloud_list(&socket, false).await },
                     Message::CloudPickLoaded,
                 )
@@ -301,7 +312,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "解锁凭据",
                     async move { unlock_credentials(&socket, &password).await },
                     Message::SyncUnlocked,
                 )
@@ -329,7 +341,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "设置主密码",
                     async move { set_master_password(&socket, &password).await },
                     Message::SyncMasterSaved,
                 )
@@ -352,7 +365,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "锁定凭据",
                     async move { lock_credentials(&socket).await },
                     Message::SyncCredentialsLocked,
                 )
@@ -382,7 +396,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "删除主密码文件",
                     async move { clear_master_file(&socket).await },
                     Message::SyncMasterDeleted,
                 )
@@ -399,7 +414,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = Some("正在同步…".to_string());
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "同步这一款的存档",
                     async move { sync_now(&socket, game_id).await },
                     Message::SyncNowDone,
                 )
@@ -427,7 +443,8 @@ impl App {
                 self.sync_form.busy = true;
                 self.sync_form.msg = Some("正在恢复…".to_string());
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "取回存档",
                     async move { sync_restore(&socket, &game_id, version.as_deref()).await },
                     Message::SyncNowDone,
                 )

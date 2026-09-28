@@ -408,6 +408,28 @@ impl App {
                 }
                 Task::none()
             }
+            // 一件耗时的事跑完了：摘掉底部那行"正在…"，把它记成"刚做完什么、花了多久"，
+            // 然后照常处理它自己的回包（`App::activity` 是唯一挂它的地方）。
+            //
+            // ⚠ 世代号对不上就是**上一件事迟到的收尾**：那时什么都不动 —— 用户连着点两下
+            // 时，"上一件跑完了"不许把"下一件正在跑"抹成空闲。
+            Message::ActivityFinished(generation, label, inner) => {
+                if generation == self.activity_generation {
+                    let took = self
+                        .activity
+                        .take()
+                        .map(|activity| activity.since.elapsed());
+                    self.activity_done = Some(match took {
+                        // 耗时必须说出来：用户报过"手动上传要半分钟"，而界面上从来没有一个
+                        // 数字，"慢"与"没传"因此分不清。
+                        Some(took) if took.as_secs() >= 1 => {
+                            format!("{label} 完成，用了 {}", took_label(took))
+                        }
+                        _ => format!("{label} 完成"),
+                    });
+                }
+                self.update(*inner)
+            }
             Message::ProfileSaved(generation, result) => self.profile_saved(generation, result),
             Message::ResetProfile => self.reset_profile(),
             Message::PickerProbed(result) => {

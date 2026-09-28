@@ -66,7 +66,8 @@ impl App {
         self.confirm_stop = false;
         self.launching = Some(id.clone());
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "启动游戏",
             async move {
                 let mut params = serde_json::Map::new();
                 params.insert("id".into(), Value::String(id));
@@ -98,7 +99,8 @@ impl App {
         // 参与云同步的按钮还是开着的，和现实对不上"。
         let refresh_sync = self.reload_sync();
         Task::batch([
-            Task::perform(
+            self.activity(
+                "启动游戏",
                 async move {
                     let mut params = serde_json::Map::new();
                     params.insert("id".into(), Value::String(game_id.clone()));
@@ -112,7 +114,11 @@ impl App {
                 },
                 Message::LaunchDone,
             ),
-            Task::perform(async { load_without_booting().await }, Message::GamesLoaded),
+            self.activity(
+                "重新载入游戏库",
+                async { load_without_booting().await },
+                Message::GamesLoaded,
+            ),
             refresh_sync,
         ])
     }
@@ -139,7 +145,8 @@ impl App {
         // 绑上之后界面也要跟着变（游戏列表 + 同步状态，尤其是单游戏页那行"当前绑定"）。
         let refresh_sync = self.reload_sync();
         Task::batch([
-            Task::perform(
+            self.activity(
+                "启动游戏",
                 async move {
                     let mut params = serde_json::Map::new();
                     params.insert("id".into(), Value::String(game_id.clone()));
@@ -155,7 +162,11 @@ impl App {
                 },
                 Message::LaunchDone,
             ),
-            Task::perform(async { load_without_booting().await }, Message::GamesLoaded),
+            self.activity(
+                "重新载入游戏库",
+                async { load_without_booting().await },
+                Message::GamesLoaded,
+            ),
             refresh_sync,
         ])
     }
@@ -185,7 +196,8 @@ impl App {
         self.sync_ask_hidden = true;
         self.cloud_pick.open(CloudPickPurpose::Launch);
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "拉取云端清单",
             async move { cloud_list(&socket, false).await },
             Message::CloudPickLoaded,
         )
@@ -206,7 +218,8 @@ impl App {
             "正在新建云端身份…".to_string()
         });
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "绑定云端身份",
             async move { resolve_pairing(&socket, id, cloud).await },
             Message::SyncBindingChanged,
         )
@@ -220,7 +233,8 @@ impl App {
         self.confirm_stop = false;
         let socket = self.daemon_socket.clone();
         self.error = None;
-        Task::perform(
+        self.activity(
+            "停止游戏",
             async move { stop_session(&socket, &session).await },
             Message::StopDone,
         )

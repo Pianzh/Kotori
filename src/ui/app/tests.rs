@@ -429,3 +429,64 @@ fn an_inferred_mount_lands_in_the_draft_without_saving() {
     assert!(draft.path_group_changed(), "按钮该亮起来");
     assert!(app.save_in_flight.is_none(), "但不许自己写下去");
 }
+
+/// 底部那条状态栏：**正在做什么**要挂上去、收尾要摘掉并记下"刚做完什么"。
+///
+/// 用户 2026-09-28 要它"方便查错" —— 他碰上的是"退出后没有自动上传，手动上传要半分钟"，
+/// 而界面上从来没有一个地方看得出"它现在到底动没动"。
+#[test]
+fn the_activity_bar_shows_what_is_running_and_what_just_finished() {
+    let (mut app, _task) = App::new();
+    assert_eq!(
+        app.activity_bar(),
+        (String::new(), String::new()),
+        "刚起来时两句话都是空的 —— 栏本身也不该画出来"
+    );
+
+    // 挂上一件事：左边说"正在…"，右边**空着**（一行里塞两件事就分不清哪句是现在）。
+    app.activity_done = Some("上次那件事完成".into());
+    app.activity = Some(Activity::new("拉取云端索引"));
+    assert_eq!(
+        app.activity_bar(),
+        ("正在拉取云端索引…".to_string(), String::new())
+    );
+
+    // 收尾：摘掉"正在…"，记下"刚做完什么"。
+    let generation = app.activity_generation;
+    app.update(Message::ActivityFinished(
+        generation,
+        "拉取云端索引".into(),
+        Box::new(Message::ClearError(u64::MAX)),
+    ));
+    assert!(app.activity.is_none(), "跑完了就不该还挂着");
+    let (now, done) = app.activity_bar();
+    assert!(now.is_empty(), "{now}");
+    assert!(done.starts_with("拉取云端索引 完成"), "{done}");
+}
+
+/// **迟到的收尾不许清掉现在这件事**（同错误条那条世代规矩）。
+///
+/// 用户连着点两下时，上一件跑完的回包可能落在下一件已经开跑之后 —— 那一刻把状态抹成
+/// 空闲，栏里就会出现"明明还在跑却写着上次做完了"。
+#[test]
+fn a_late_activity_finish_never_clears_the_one_running_now() {
+    let (mut app, _task) = App::new();
+    app.activity = Some(Activity::new("第一件"));
+    let first = app.activity_generation;
+
+    app.activity = Some(Activity::new("第二件"));
+    app.update(Message::ActivityFinished(
+        first,
+        "第一件".into(),
+        Box::new(Message::ClearError(u64::MAX)),
+    ));
+
+    assert_eq!(
+        app.activity
+            .as_ref()
+            .map(|activity| activity.label.as_str()),
+        Some("第二件"),
+        "迟到的收尾把正在跑的那件抹掉了"
+    );
+    assert_eq!(app.activity_bar().0, "正在第二件…");
+}

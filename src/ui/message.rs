@@ -144,6 +144,12 @@ pub enum Message {
     ProfileSaved(u64, Result<(), String>),
     /// `App::set_error` 挂的那个"3 秒到了"的定时器：世代号对得上才清。
     ClearError(u64),
+    /// 一件耗时的事跑完了：把底部那行"正在…"摘掉、记下"刚做完什么"（带耗时），然后照常
+    /// 处理它自己的回包（`Box<Message>`，见 `App::activity`）。
+    ///
+    /// 那个世代号与 `ClearError` 同一个道理：迟到的收尾**不许**把后来那件事的状态清掉
+    /// —— 用户连着点两下时，"上一件跑完了"不能把"下一件正在跑"抹成空闲。
+    ActivityFinished(u64, String, Box<Message>),
     /// 「重置」:回到已保存的设置(没有保存按钮之后,这是填错值的唯一退路)。
     ResetProfile,
     DeleteRequested,

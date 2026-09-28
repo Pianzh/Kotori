@@ -53,6 +53,14 @@ export component AppWindow inherits Window {
     in-out property <bool> can-reconnect: false;
     in-out property <string> error: "";
     in-out property <bool> loading: false;
+    /// 底部状态栏：现在正在做什么（空 = 空闲）。
+    ///
+    /// 用户 2026-09-28："我建议在最下面，添加 kotori 当前状态，比如正在拉取云端配置就显示
+    /// 正在拉取云端配置，正在下载，正在同步什么的都写上，方便查错"。它与顶部那条错误条
+    /// 是对称的：那条说"出了什么事"，这条说"正在做什么、刚做完什么"。
+    in-out property <string> activity: "";
+    /// 刚做完什么、花了多久（正忙时不显示它 —— 一行里塞两件事就分不清哪句是现在）。
+    in-out property <string> activity-done: "";
 
     // ── 「浏览…」:借系统自己的文件对话框挑一个位置(见 src/picker.rs) ─────────
     // 一个窗口级开关就够:能不能用是**这台机器**的事,和哪个输入框无关。没探完
@@ -421,6 +429,33 @@ export component AppWindow inherits Window {
                         if CloudPickerState.open : CloudPickerDialog { }
                         // 启动前那一问(见 `widgets/sync-ask.slint`)。
                         if SyncAskState.open : SyncAskDialog { }
+                    }
+
+                    // ── 底部状态栏 ──
+                    // 与顶部那条错误条对称：那条说"出了什么事"，这条说"正在做什么、刚做完
+                    // 什么"（用户 2026-09-28："我建议在最下面添加 kotori 当前状态……方便
+                    // 查错"）。放在内容区最下面而不是横跨整窗 —— 左侧导航照旧是满高的。
+                    //
+                    // ⚠ 两句话**同时只显示一句**（正忙时右下不显示上一次的结果）：一行里塞
+                    // 两件事，就分不清哪句是现在。
+                    if root.activity != "" || root.activity-done != "" : Rectangle {
+                        height: status-layout.preferred-height;
+                        background: #00000000;
+                        status-layout := HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            padding-top: 6px;
+                            padding-bottom: 6px;
+                            spacing: 8px;
+                            Text {
+                                text: root.activity != "" ? "● " + root.activity : "最近：" + root.activity-done;
+                                font-size: 12px;
+                                color: root.activity != "" ? Tokens.text-2 : Tokens.text-3;
+                                overflow: elide;
+                                horizontal-stretch: 1;
+                                vertical-alignment: center;
+                            }
+                        }
                     }
                 }
             }

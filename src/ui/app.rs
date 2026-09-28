@@ -23,6 +23,13 @@ pub struct App {
     /// 错误条的世代号：每设一条 +1，"3 秒后清除"那个定时器醒来发现号变了就作废
     /// —— 同一类错误连发两次时，旧的定时器不许把新的那条清掉。
     pub(super) error_generation: u64,
+    /// 底部那条状态栏：现在在跑的那件事（`None` = 空闲）。由 [`App::activity`] 挂上、
+    /// `Message::ActivityFinished` 摘掉。
+    pub(super) activity: Option<Activity>,
+    /// 底下那句"刚做完什么、花了多久"（`None` = 这次开机还没干过活）。
+    pub(super) activity_done: Option<String>,
+    /// 活动条的世代号：迟到的收尾不许把后来那件事的状态清掉（同 `error_generation`）。
+    pub(super) activity_generation: u64,
     pub(super) launching: Option<String>,
     /// 启动前那一问正等着回答的那一款（`None` = 没在问）。
     pub(super) sync_ask: Option<String>,
@@ -152,6 +159,9 @@ impl App {
                 loading: false,
                 error: None,
                 error_generation: 0,
+                activity: None,
+                activity_done: None,
+                activity_generation: 0,
                 launching: None,
                 selected: None,
                 draft: None,
@@ -335,6 +345,45 @@ impl App {
     pub(super) fn report_saved(&mut self, message: impl Into<String>, ok: bool) {
         self.saved_msg = Some(message.into());
         self.saved_ok = ok;
+    }
+
+    /// 把一件耗时的事挂到底部那条状态栏上：跑的时候显示"正在…"，跑完自己摘掉，并记成
+    /// "刚做完什么、花了多久"。
+    ///
+    /// 用法就是把 `Task::perform(future, Message::Xxx)` 换成
+    /// `self.activity("拉取云端索引", future, Message::Xxx)` —— 收尾由
+    /// [`Message::ActivityFinished`] 统一做，所以调用点不必各自去清状态，也就不会漏。
+    ///
+    /// `label` 是**动作名**（"拉取云端索引"），两句文案由这一层拼（见 `model::activity`）。
+    ///
+    /// ⚠ 只包**真的会让人等**的事（网络往返、扫全库、起进程）：读一次配置那种几毫秒的事
+    /// 挂上去只会让这一栏闪一下，反而不像"状态"。
+    pub(super) fn activity<T: Send + 'static>(
+        &mut self,
+        label: &str,
+        future: impl std::future::Future<Output = T> + Send + 'static,
+        wrap: impl FnOnce(T) -> Message + Send + 'static,
+    ) -> Task<Message> {
+        let label = label.to_string();
+        self.activity_generation += 1;
+        let generation = self.activity_generation;
+        self.activity = Some(Activity::new(label.clone()));
+        Task::perform(future, move |out| {
+            Message::ActivityFinished(generation, label.clone(), Box::new(wrap(out)))
+        })
+    }
+
+    /// 底部那两句话：左边"正在做什么"（空 = 空闲），右边"刚做完什么"。
+    ///
+    /// 正忙时**不显示**上一次的结果：一行里塞两件事，就分不清哪句是现在。
+    pub(in crate::ui) fn activity_bar(&self) -> (String, String) {
+        match &self.activity {
+            Some(activity) => (format!("正在{}…", activity.label), String::new()),
+            None => (
+                String::new(),
+                self.activity_done.clone().unwrap_or_default(),
+            ),
+        }
     }
 
     // ── 「浏览…」:借系统自己的对话框挑一个位置 ──────────────────────────────

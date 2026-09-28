@@ -27,7 +27,8 @@ impl App {
         self.cloud.loading = true;
         self.cloud.msg = Some("正在读本机那份云端清单…".to_string());
         let socket = self.daemon_socket.clone();
-        Task::perform(
+        self.activity(
+            "拉取云端清单",
             async move { cloud_list(&socket, false).await },
             Message::CloudLoaded,
         )
@@ -43,7 +44,8 @@ impl App {
                 self.cloud.msg = Some("正在从云端读索引…".to_string());
                 self.cloud.ok = true;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "刷新云端清单",
                     async move { cloud_list(&socket, true).await },
                     Message::CloudLoaded,
                 )
@@ -72,7 +74,8 @@ impl App {
                     Some("正在深度扫描云端（要读每一张身份卡，可能会慢）…".to_string());
                 self.cloud.ok = true;
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "深度扫描云端",
                     async move { cloud_scan(&socket).await },
                     Message::CloudScanned,
                 )
@@ -122,7 +125,8 @@ impl App {
                 self.cloud_version.closed();
                 let socket = self.daemon_socket.clone();
                 let asked = key.clone();
-                Task::perform(
+                self.activity(
+                    "读这一款的版本列表",
                     async move { cloud_versions(&socket, asked).await },
                     move |result| Message::CloudVersionsLoaded(key, result),
                 )
@@ -165,11 +169,13 @@ impl App {
                 };
                 let socket = self.daemon_socket.clone();
                 match action {
-                    Confirmation::ClearVersions => Task::perform(
+                    Confirmation::ClearVersions => self.activity(
+                        "删除云端版本",
                         async move { sync_clear_versions(&socket, key).await },
                         Message::CloudDeleted,
                     ),
-                    Confirmation::ForgetIdentity => Task::perform(
+                    Confirmation::ForgetIdentity => self.activity(
+                        "忘掉这条云端身份",
                         async move { sync_forget_identity(&socket, key).await },
                         Message::CloudDeleted,
                     ),
@@ -219,7 +225,8 @@ impl App {
                     return Task::none();
                 };
                 let socket = self.daemon_socket.clone();
-                Task::perform(
+                self.activity(
+                    "删除那一版存档",
                     async move { sync_delete_version(&socket, key, version).await },
                     Message::CloudVersionDeleted,
                 )

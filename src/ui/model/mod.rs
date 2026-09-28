@@ -11,6 +11,7 @@
 //! `pub(super)` 可见性重导出 —— `crate::ui::model::X` 这些路径照旧可用,调用方
 //! 一行都不用改。
 
+mod activity;
 mod add;
 mod cloud;
 mod cloud_label;
@@ -30,6 +31,7 @@ pub use picker::ProcessRow;
 pub use session::SessionInfo;
 pub use sync::{SyncGameRow, SyncStatus};
 
+pub(super) use activity::{Activity, took_label};
 pub(super) use add::{AddMatch, MATCH_DEBOUNCE, MatchPhase};
 // `MatchReply` 是 `Message` 的载荷之一（`Message` 自己是 `pub(crate)`），所以它得跟着放宽到
 // `pub(crate)`，否则 clippy 报"类型比用到它的那个字段更私有"（同下面的 `SaveScope`）。
