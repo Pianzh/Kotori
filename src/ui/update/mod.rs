@@ -293,6 +293,7 @@ impl App {
             // ── 云同步（处理在 `update::update_sync`） ──
             m @ (Message::SyncStatusLoaded(..)
             | Message::SyncToggleEnabled(..)
+            | Message::SyncToggleEnabledSaved(..)
             | Message::SyncField(..)
             | Message::SyncEngineSelected(..)
             | Message::SyncEngineSaved(..)

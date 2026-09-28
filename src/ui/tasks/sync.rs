@@ -43,6 +43,22 @@ pub(in crate::ui) async fn save_sync_engine(socket: &Path, engine: &str) -> Resu
     Ok(engine_changed(&value))
 }
 
+/// 只改「启用云同步」这一个字段（`sync.set_settings` 的字段都是 `Option`，支持部分更新）。
+///
+/// ⚠ 与「保存设置」分开是刻意的：那颗总开关点下去就**立刻生效**（用户 2026-09-28 报的
+/// "开关前后端不对应"—— 界面显示"已启用"而后端还是 `false`，退出游戏自然不上传），
+/// 而且**不能让用户改了一半的桶名被顺手写下去**。旁边那两颗引擎按钮走的是同一条路
+/// （见 [`save_sync_engine`]）。
+pub(in crate::ui) async fn save_sync_enabled(socket: &Path, enabled: bool) -> Result<(), String> {
+    crate::rpc::call(
+        socket,
+        "sync.set_settings",
+        Some(crate::rpc::params([("enabled", Value::Bool(enabled))])),
+    )
+    .await?;
+    Ok(())
+}
+
 /// daemon 在 `sync.set_settings` 的回包里说"这次换引擎了"。
 ///
 /// 值得单独一个函数，是因为它带的是**一句必须说出口的警告**：换了引擎之后，另一个

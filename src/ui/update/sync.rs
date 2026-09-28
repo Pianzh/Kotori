@@ -24,9 +24,45 @@ impl App {
                 }
             },
             Message::SyncToggleEnabled(value) => {
+                // **点下去就生效**（用户 2026-09-28 报的"开关前后端不对应"）：它是布尔开关，
+                // 没有"打字中间态"，与旁边那两颗引擎按钮同一种东西 —— 而从前这里只改
+                // `form.enabled` 再 `Task::none()`，于是界面显示"已启用"而后端还是 `false`
+                // （退出游戏自然不上传）；`settings_dirty` 一置起还会让 `form.apply()` 跳过
+                // **所有**字段，界面就冻结在用户点的那一份上，连"未保存"都不说。
+                //
+                // 只提交 `enabled` 一个字段：用户手上那些还没保存的编辑（bucket、prefix…）
+                // 一个字都不会被带上去，`settings_dirty` 也**不动**（与换引擎那条一致）。
                 self.sync_form.enabled = value;
-                self.sync_form.settings_dirty = true;
-                Task::none()
+                self.sync_form.busy = true;
+                self.sync_form.msg = None;
+                let socket = self.daemon_socket.clone();
+                self.activity(
+                    "切换云同步总开关",
+                    async move { save_sync_enabled(&socket, value).await },
+                    Message::SyncToggleEnabledSaved,
+                )
+            }
+            Message::SyncToggleEnabledSaved(result) => {
+                self.sync_form.busy = false;
+                match result {
+                    Ok(()) => {
+                        self.sync_form.msg = Some(if self.sync_form.enabled {
+                            "云同步已启用：退出游戏后会自动上传".to_string()
+                        } else {
+                            "云同步已关闭".to_string()
+                        });
+                    }
+                    Err(error) => {
+                        self.sync_form.msg = Some(format!("改云同步总开关失败: {error}"));
+                        // 没写进去就别让界面继续装着改过了：清掉 dirty，好让下面这次刷新把
+                        // 配置里那个真正的值拉回来（与 `SyncEngineSaved` 同一条规矩）。而且
+                        // **挂横幅** —— 这颗开关是最容易"以为生效了"的那一个。
+                        self.sync_form.settings_dirty = false;
+                        let message = format!("改「启用云同步」失败: {error}");
+                        return Task::batch([self.set_error(message), self.reload_sync()]);
+                    }
+                }
+                self.reload_sync()
             }
             Message::SyncField(field, value) => {
                 let form = &mut self.sync_form;

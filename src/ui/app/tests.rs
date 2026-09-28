@@ -430,6 +430,32 @@ fn an_inferred_mount_lands_in_the_draft_without_saving() {
     assert!(app.save_in_flight.is_none(), "但不许自己写下去");
 }
 
+/// **那颗「启用云同步」开关点了就立刻保存**（用户 2026-09-28 报的"开关前后端不对应"：
+/// 界面显示"已启用"而后端还是 false，退出游戏自然不上传）。
+///
+/// 它与旁边那两颗引擎按钮同一种东西 —— 布尔开关没有"打字中间态"，不该等用户再去找一次
+/// 「保存设置」。
+#[test]
+fn flipping_the_master_switch_is_saved_right_away() {
+    let (mut app, _task) = App::new();
+    assert!(!app.sync_form.enabled);
+
+    app.update(Message::SyncToggleEnabled(true));
+
+    assert!(app.sync_form.enabled, "界面立刻跟上");
+    assert_eq!(
+        app.activity
+            .as_ref()
+            .map(|activity| activity.label.as_str()),
+        Some("切换云同步总开关"),
+        "而且它要挂在底部那条状态栏上"
+    );
+    assert!(
+        !app.sync_form.settings_dirty,
+        "它自己会保存，不该把自己标成「未保存」—— 那会冻住整个表单"
+    );
+}
+
 /// **同步失败要挂顶部横幅**（用户 2026-09-28："算不了直接横幅报错"）。
 ///
 /// 表单里那行小字常常在一屏之外：手动「立即同步」被拒时（例如"算不出可执行文件的指纹，

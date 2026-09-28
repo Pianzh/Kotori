@@ -225,6 +225,9 @@ pub enum Message {
     /// 每条事件上都要移动一次。
     SyncStatusLoaded(Box<Result<SyncStatus, String>>),
     SyncToggleEnabled(bool),
+    /// 那颗总开关的回包（`Ok(())` = 后端已经跟上）。**它自己会保存**，所以`Ok` 时不动
+    /// `settings_dirty`（用户手上别的编辑一个字都没动）。
+    SyncToggleEnabledSaved(Result<(), String>),
     SyncField(SyncField, String),
     /// 换引擎（`rclone` / `kopia`）。只改表单，随"保存设置"一起提交。
     SyncEngineSelected(String),
