@@ -362,7 +362,6 @@ impl Daemon {
             match exit_upload_gate(game_id, &config) {
                 Ok(settings) => settings,
                 Err(refusal) => {
-                    tracing::info!("{game_id}: 退出后不上传: {}", refusal.detail);
                     self.sync
                         .remember_note(game_id, "上传", true, refusal.detail.clone());
                     return ExitUpload::Skipped(refusal);
@@ -378,7 +377,6 @@ impl Daemon {
                     reason: SkipReason::LocationsUnresolved,
                     detail: error.clone(),
                 };
-                tracing::info!("{game_id}: 退出后不上传: {error}");
                 self.sync.remember_note(game_id, "上传", true, error);
                 return ExitUpload::Skipped(refusal);
             }
@@ -386,7 +384,6 @@ impl Daemon {
         let runner = match self.sync_runner(&settings) {
             Ok(runner) => runner,
             Err(error) => {
-                tracing::warn!("{game_id}: 退出后上传失败: {error}");
                 self.sync
                     .remember_note(game_id, "上传", false, error.clone());
                 return ExitUpload::Failed(error);
@@ -401,7 +398,6 @@ impl Daemon {
         let packed = match self.pack_identity(&runner, game_id, &name, &targets).await {
             Ok(packed) => packed,
             Err(error) => {
-                tracing::warn!("{game_id}: 退出后上传失败: {error}");
                 self.sync
                     .remember_note(game_id, "上传", false, error.clone());
                 return ExitUpload::Failed(error);
@@ -433,11 +429,7 @@ impl Daemon {
             );
             ExitUpload::Uploaded
         } else {
-            tracing::warn!(
-                "{game_id}: 退出后同步失败: {:?}（上传 {upload_took:?}）",
-                outcome.error
-            );
-            ExitUpload::Failed(outcome.error.unwrap_or_else(|| "未知原因".to_string()))
+            ExitUpload::Failed(outcome.error.unwrap_or_else(|| "上传没有成功".to_string()))
         }
     }
 }

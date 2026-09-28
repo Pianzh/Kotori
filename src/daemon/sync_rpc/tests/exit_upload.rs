@@ -139,8 +139,11 @@ async fn answering_off_in_the_self_check_permanently_stops_exit_uploads() {
     let fake = FakeTool::new("exit-upload-selfcheck-off");
     let (daemon, path) = daemon_at(fake.keyring());
     // 起点：这一款开着，也真的会走自动上传那条路。
+    // ⚠ 配置先 clone 成快照再问：那个 `&guard` 推不出 `&Config`（那是 E0308，
+    //   不是 deref 能不能coerce 的问题），而判据本来就不要锁。
+    let starting = daemon.config.read().await.clone();
     assert_eq!(
-        exit_upload_gate("demo", &daemon.config.read().await)
+        exit_upload_gate("demo", &starting)
             .expect("起点就该是通的")
             .bucket,
         "bkt"
@@ -180,8 +183,9 @@ async fn answering_off_in_the_self_check_permanently_stops_exit_uploads() {
     )
     .await;
     assert_eq!(value["result"]["success"], true, "{value}");
+    let reopened = daemon.config.read().await.clone();
     assert!(
-        exit_upload_gate("demo", &daemon.config.read().await).is_ok(),
+        exit_upload_gate("demo", &reopened).is_ok(),
         "重新打开之后就该恢复自动上传"
     );
 

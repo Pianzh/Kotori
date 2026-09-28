@@ -25,7 +25,7 @@ mod scale_rpc;
 mod status_rpc;
 mod sync_rpc;
 mod watch;
-use sync_rpc::SyncState;
+use sync_rpc::{ExitUpload, SyncState};
 
 pub use ipc::ensure_running;
 
@@ -278,10 +278,28 @@ impl Daemon {
                         };
                         let this = this.clone();
                         tokio::spawn(async move {
-                            // 结果**故意在这里丢掉**：那个函数自己已经把每一道闸门
-                            // 说了（日志 + `sync.status` 的 `auto_upload_blocked`），
-                            // 调用方要做的只是"别让慢网络卡住引擎或下一个事件"。
-                            this.sync_after_game_exit(&game_id).await;
+                            // 这里是**唯一**把结果说出口的地方（上传本身那一半不打
+                            // 日志，免得同一件事说两遍）：用户搜游戏名就能看到"这一局
+                            // 玩完，存档到底传了没有、为什么没传"，不必去翻设置页。
+                            //
+                            // ⚠ 无论哪种结果都只是 `tracing` 一行：这个任务绝不能把
+                            // 慢网络变成引擎或下一个事件的等待（它本来就 `spawn` 在
+                            // 外面，`Ended` 只是触发器）。
+                            match this.sync_after_game_exit(&game_id).await {
+                                // 成功那半边已经记过分步耗时（`sync_after_game_exit`），
+                                // 这里不重复。
+                                ExitUpload::Uploaded => {}
+                                ExitUpload::Skipped(refusal) => {
+                                    tracing::info!(
+                                        "{game_id}: 退出后没有上传（{}）: {}",
+                                        refusal.reason.code(),
+                                        refusal.detail,
+                                    );
+                                }
+                                ExitUpload::Failed(error) => {
+                                    tracing::warn!("{game_id}: 退出后上传失败: {error}");
+                                }
+                            }
                         });
                     }
                     Ok(_) => {}
