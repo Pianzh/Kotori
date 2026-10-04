@@ -51,6 +51,12 @@ pub fn scan(directory: &Path) -> anyhow::Result<Vec<GameConfig>> {
         }
     }
 
+    // 遍历顺序是文件系统的实现细节(ext4 / NTFS / tmpfs 各不同),而重名时那个 `-2`/`-3`
+    // 后缀正是按这个顺序分配的 —— 不排序的话,同一份游戏库换个文件系统(甚至只是目录里
+    // 多了一个临时文件)就会把后缀分给**另一款**游戏,而云端的版本历史是按 id 分开存的。
+    // `sort_by` 是稳定排序:真撞名字时先扫到的那个还在前面。
+    games.sort_by(|a, b| a.name.cmp(&b.name));
+
     Ok(games)
 }
 
@@ -145,7 +151,10 @@ pub(super) fn pick_game_exe(dir: &Path) -> Option<PathBuf> {
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_lowercase();
-                let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                // 取大小要**跟随符号链接**:不少整合包用软链接指向真实 exe,而
+                // `entry.metadata()` 看的是链接自己(长度恒是几个字节) ⇒ 大小这一维的平局
+                // 判据失效,scan 可能把档案指向 `Launcher.exe` 那种东西。
+                let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
                 exes.push((stem, size, p));
             }
         }

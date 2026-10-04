@@ -215,6 +215,22 @@ fn an_uppercase_exe_extension_is_still_a_game() {
     assert_eq!(names, ["LowerExt", "MixedExt", "UpperExt"], "{found:?}");
 }
 
+/// `-2`/`-3` 后缀是按遍历顺序分配的,而遍历顺序是文件系统的实现细节 —— 不排序的话,
+/// 同一份游戏库在 ext4 / NTFS / tmpfs 上会把后缀分给不同的游戏,而云端的版本历史是按
+/// id 分开存的,后缀一换就等于换了一款游戏。
+#[test]
+fn scan_results_do_not_depend_on_directory_order() {
+    let root = TempDir::new("scan-order");
+    for dir in ["Zeta", "Alpha", "Mid"] {
+        std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        std::fs::write(root.path().join(dir).join("game.exe"), b"").unwrap();
+    }
+
+    let found = scan(&root.path()).unwrap();
+    let names: Vec<&str> = found.iter().map(|game| game.name.as_str()).collect();
+    assert_eq!(names, ["Alpha", "Mid", "Zeta"]);
+}
+
 #[test]
 fn scan_counts_subdirectories_and_the_root_itself() {
     let root = TempDir::new("scan-root");
