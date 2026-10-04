@@ -64,6 +64,21 @@ pub fn of_file(path: &Path) -> Option<String> {
     Some(format!("{VERSION}:{size}:{hex}"))
 }
 
+/// **整份字节**的 BLAKE2b-256，小写十六进制（64 个字符）。
+///
+/// 这是存档内容值（[`crate::sync::archive::digest`]）唯一用到的哈希。与 [`of_file`]
+/// 是两件事，别混：那个是"跨机器认游戏"的指纹（大小 + 首尾各 1 MiB，**刻意**不读
+/// 整份），而判"本机动没动"必须看每一个字节，少一个都不行。
+pub fn hash_bytes(bytes: &[u8]) -> String {
+    let mut hasher = Blake2b256::new();
+    hasher.update(bytes);
+    hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// 给还没有指纹的档案补上（本机的事，与云端无关）。
 ///
 /// **只补缺失的**：已经有指纹的一条都不碰。exe 换了之后要不要跟着换，是用户的事

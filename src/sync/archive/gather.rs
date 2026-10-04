@@ -28,21 +28,9 @@ pub(super) struct Gathered {
 pub(super) fn gather(targets: &[SaveTarget]) -> Result<Gathered, String> {
     let mut locations = Vec::new();
     let mut missing = Vec::new();
-    let mut files: Vec<(String, PathBuf, String)> = Vec::new();
     let mut excluded = 0;
-
-    for target in targets {
-        if !target.local.is_dir() {
-            missing.push(target.key.clone());
-            continue;
-        }
-        locations.push(target.key.clone());
-        let (found, skipped) = collect_files(&target.local, &target.exclude)?;
-        excluded += skipped;
-        for (absolute, relative) in found {
-            files.push((target.key.clone(), absolute, relative));
-        }
-    }
+    let all = collect_all(targets, &mut locations, &mut missing, &mut excluded)?;
+    let files: Vec<(String, PathBuf, String)> = all;
 
     let mut entries = Vec::with_capacity(files.len());
     for (key, absolute, relative) in &files {
@@ -63,6 +51,36 @@ pub(super) fn gather(targets: &[SaveTarget]) -> Result<Gathered, String> {
         excluded,
         files,
     })
+}
+
+/// 走一遍所有存档位置，只要文件清单 —— **不 stat、不读内容**。
+///
+/// [`gather`] 与本模块的兄弟 `digest` 要的是同一份清单，差别只在"接下来拿这些路径
+/// 干什么"（量尺寸与时间 / 读全文算哈希）。收集规则必须逐字相同，所以走的是同一个
+/// [`collect_files`]。
+///
+/// 位置在、但不是目录（盘没插、路径写错）时记进 `missing` 并跳过，与 [`gather`]
+/// 一样：那是"这台机器上没有这个位置"，不是错误。
+pub(super) fn collect_all(
+    targets: &[SaveTarget],
+    locations: &mut Vec<String>,
+    missing: &mut Vec<String>,
+    excluded: &mut usize,
+) -> Result<Vec<(String, PathBuf, String)>, String> {
+    let mut files = Vec::new();
+    for target in targets {
+        if !target.local.is_dir() {
+            missing.push(target.key.clone());
+            continue;
+        }
+        locations.push(target.key.clone());
+        let (found, skipped) = collect_files(&target.local, &target.exclude)?;
+        *excluded += skipped;
+        for (absolute, relative) in found {
+            files.push((target.key.clone(), absolute, relative));
+        }
+    }
+    Ok(files)
 }
 
 /// 递归收集一个目录下的所有普通文件，返回 `(绝对路径, 相对路径)` 与"被排除的数量"。

@@ -24,7 +24,10 @@ use serde::{Deserialize, Serialize};
 use super::cloud::{GameIdentity, MachineIdentity};
 
 /// 索引的格式版本。**不认识就当读不懂**，绝不猜（索引只是加速，猜错会认错游戏）。
-pub const INDEX_FORMAT: u32 = 1;
+///
+/// 2 = 每条多了 `latest_digest`（最近一版的**内容值**，见 PLATFORMS.md §6.1(d)）。
+/// 老索引没有这个字段：读得进来，`latest_digest` 是 `None`（= "还不知道"）。
+pub const INDEX_FORMAT: u32 = 2;
 /// 合并快照的文件名（rclone 是桶里那个对象名；kopia 是快照里那个文件名）。
 pub const INDEX_FILE: &str = "kotori-index.json";
 /// 增量放的目录名（rclone 是 `index/log/`；kopia 是索引快照的 `index` 标签前缀）。
@@ -50,6 +53,15 @@ pub struct IndexGame {
     /// 最近一版的版本名。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest: Option<String>,
+    /// 最近一版的**内容值**（PLATFORMS.md §6.1(a) 那个 `digest`，64 个小写十六进制）。
+    ///
+    /// 上传成功时写下（打包顺手算出来的那个值，见 §6.6 第 1 步）。它是"云端最新那一版
+    /// 与本机是不是同一版"的唯一依据：`latest` 只说"叫什么名字"，说不出内容。
+    ///
+    /// **缺省 = 不知道**（老的索引条目、或者写它的时候还没算过）：判定表第 3 格据此
+    /// 去问用户，绝不许拿 `size` 或时间戳猜一个出来。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_digest: Option<String>,
     /// 最近一版多大（字节；不知道就是 0）。
     #[serde(default)]
     pub size: u64,
@@ -72,6 +84,7 @@ impl IndexGame {
             identity,
             versions: 0,
             latest: None,
+            latest_digest: None,
             size: 0,
             gone: false,
             updated: now(),
@@ -85,10 +98,27 @@ impl IndexGame {
     }
 
     /// 记下这一款现在的摘要（版数 / 最近一版 / 大小），并把时间戳推到现在。
+    ///
+    /// ⚠ 它**只在版本名变了时**才清 [`Self::latest_digest`]：内容值描述的是"**最新那一版**
+    /// 的内容"，最新那一版换人了，旧值就不再是它的内容值了。留着会让索引自相矛盾 ——
+    /// 判定会据此说"云端没动"，而云端其实已经前进了一版（另一台机器刚传的）。
+    ///
+    /// 反过来，版本名没变时**一个字都不许动**它：深扫重建索引那条路（只列快照、不下载包）
+    /// 算不出内容值，它带来的是 `None`；那不是"内容值没了"，只是"这次没算"。
+    /// 下一次成功上传或拉取会重新写上它（[`Self::set_digest`]）。
     pub fn set_summary(&mut self, versions: usize, latest: Option<String>, size: u64) {
+        if self.latest != latest {
+            self.latest_digest = None;
+        }
         self.versions = versions;
         self.latest = latest;
         self.size = size;
+        self.touch();
+    }
+
+    /// 记下最近一版的内容值（一次成功上传之后，用刚打包出来的那个值）。
+    pub fn set_digest(&mut self, digest: Option<String>) {
+        self.latest_digest = digest;
         self.touch();
     }
 
@@ -122,8 +152,14 @@ impl CloudIndex {
     /// 桶是**外部输入**：未来版本写下的索引不该被这一版按"当前字段"解释。三条读取
     /// 路径（rclone、kopia、本地缓存）都要过这一关 —— 认不出就当它没有，让深扫重写
     /// 一份（BUG-25）。写入路径不用问：自己写的就是自己认的格式。
+    ///
+    /// ⚠ 但**自己的老格式必须认**（格式 1 = 还没有 `latest_digest` 的那一版，读进来
+    /// 就是 `None`）。不认它的后果不是"安全"，而是：升级后的第一次启动读不到任何
+    /// 云端索引 ⇒ 判定落在"读不到索引"那一格 ⇒ **本次不自动上传、也不比较**，
+    /// 而用户什么都没做错，只会看到一次莫名其妙的"这次没同步"。垃圾（0）与更新
+    /// （`> INDEX_FORMAT`）照旧拒绝。
     pub fn is_supported(&self) -> bool {
-        self.format == INDEX_FORMAT
+        (1..=INDEX_FORMAT).contains(&self.format)
     }
 
     pub fn new() -> Self {

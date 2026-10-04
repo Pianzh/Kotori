@@ -216,6 +216,14 @@ impl Runner {
                     // 落点以这一次为准：认领之后它才是"该往哪儿放"。
                     existing.cloud_key = change.cloud_key.clone();
                     existing.set_summary(change.versions, change.latest.clone(), change.size);
+                    // 内容值只在"这次真的带来了一个"时写下：深扫重建索引那条路拿不到
+                    // 它（不下载包就算不出来），那时交给 `set_summary` 去判断 ——
+                    // **版本名没变**就留着索引里已有的值（那不是"没有内容值"，只是
+                    // "这次没算"），版本名变了则它在上面已经把旧值清掉了（旧值描述的
+                    // 是上一版，留着就是自相矛盾）。
+                    if change.latest_digest.is_some() {
+                        existing.set_digest(change.latest_digest.clone());
+                    }
                     // "词条被删过"这件事也要跟着走：重新上传时传进来的 `change` 是
                     // `gone: false`，正好把它清掉（见 `IndexGame::gone`）。
                     existing.gone = change.gone;

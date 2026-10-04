@@ -137,7 +137,10 @@ impl Daemon {
             self.sync.remember(&id, "上传", &outcome);
             if outcome.ok {
                 // 索引：**尽力而为**（写坏了不影响"这一版已经上去了"这件事）。
-                self.refresh_index_for(&runner, &id).await;
+                // 带上这一版的内容值：索引里那条 `latest_digest` 就是判定"云端最新
+                // 与本机是不是同一版"的依据（PLATFORMS.md §6.6 第 1 步）。
+                self.refresh_index_for(&runner, &id, outcome.digest.as_deref())
+                    .await;
             }
             outcomes.push(outcome);
         }
@@ -419,8 +422,10 @@ impl Daemon {
         self.sync.remember(game_id, "上传", &outcome);
         if outcome.ok {
             // 索引：**尽力而为** —— 这里出错只记日志，绝不让同步报错。
+            // 内容值取自刚上云的那一版（打包顺手算的），不在本机再算一遍。
             let index_started = std::time::Instant::now();
-            self.refresh_index_for(&runner, game_id).await;
+            self.refresh_index_for(&runner, game_id, outcome.digest.as_deref())
+                .await;
             tracing::info!(
                 "{game_id}: 退出后已同步存档（全程 {:?}：认身份 {identity_took:?} / \
                  上传 {upload_took:?} / 索引 {:?}）",

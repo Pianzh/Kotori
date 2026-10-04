@@ -57,6 +57,7 @@ fn manifest(entries: Vec<Entry>) -> Manifest {
         created: "2026-09-15T12:00:00Z".to_string(),
         locations: Vec::new(),
         identity: None,
+        digest: None,
         entries,
     }
 }
@@ -300,6 +301,84 @@ fn a_manifest_from_a_newer_kotori_is_refused_rather_than_guessed() {
     let manifest = parse_manifest(legacy).unwrap();
     assert!(manifest.has_location("rel-a"));
     assert!(!manifest.has_location("rel-b"));
+}
+
+/// 格式兼容（PLATFORMS.md §6.1(e)）：**继续接受格式 2**（那时 `digest` 是 `None`），
+/// 只拒绝比本机新的；新写出来的包一律是 3。
+#[test]
+fn a_manifest_from_format_two_still_reads_but_has_no_digest() {
+    assert_eq!(FORMAT, 3, "清单格式到 3 了（多了 digest）");
+
+    // 一份格式 2 的包：有 identity，没有 digest。
+    let older = r#"{"format":2,"created":"2026-09-15T12:00:00Z","locations":["rel-a"],
+        "identity":{"cloud_id":"c1","machine_id":null,"fingerprint":null,"locations":["rel-a"]},
+        "entries":[{"key":"rel-a","path":"x.sav","size":1,"mtime_ms":5}]}"#;
+    let manifest = parse_manifest(older).unwrap();
+    assert_eq!(manifest.format, 2);
+    assert_eq!(manifest.digest, None, "老包没有内容值 —— 当不知道，不猜");
+    assert!(manifest.has_location("rel-a"));
+
+    // 比本机新的格式照样当场拒绝（这条不改）。
+    let future = format!(
+        r#"{{"format":{}, "created":"2026-09-15T12:00:00Z", "entries":[]}}"#,
+        FORMAT + 1
+    );
+    let error = parse_manifest(&future).unwrap_err();
+    assert!(error.contains("更新版本"), "{error}");
+}
+
+/// 打包写出来的清单：格式是 3、带着内容值，而且**与单独算一遍 digest 的结果一致**
+/// （两条路必须是同一个值，否则 §6.5 第 3 步的核对永远过不去）。
+#[test]
+fn packing_writes_the_latest_format_and_the_same_digest_as_a_standalone_run() {
+    let dir = temp("digest-written");
+    let saves = dir.join("saves");
+    write(&saves, "save01.sav", "one");
+    write(&saves, "nested/save02.sav", "two");
+    let targets = vec![target("rel-savedata", &saves)];
+    let zip = dir.join("v.zip");
+
+    let report = pack(&zip, &targets, now(), None).unwrap();
+    let expected = local_digest(&targets).unwrap();
+
+    assert_eq!(report.digest, expected, "打包顺手算的必须与单独算的一样");
+    assert_eq!(report.digest.len(), DIGEST_HEX_LEN, "{}", report.digest);
+
+    let manifest = read_manifest(&zip).unwrap();
+    assert_eq!(manifest.format, FORMAT);
+    assert_eq!(manifest.digest.as_deref(), Some(expected.as_str()));
+    // 形状对：`skip_serializing_if` 不许把它省掉（省掉就等于"这一版没有内容值"）。
+    let raw = serde_json::to_string(&manifest).unwrap();
+    assert!(raw.contains("\"digest\""), "{raw}");
+
+    // 内容一样、换个位置 key ⇒ 清单里的内容值也不变（跨机器可比）。
+    let renamed = vec![target("本来叫别的名字", &saves)];
+    let other = dir.join("other.zip");
+    let other_report = pack(&other, &renamed, now(), None).unwrap();
+    assert_eq!(other_report.digest, expected);
+
+    // 内容变了 ⇒ 值变。
+    write(&saves, "save01.sav", "one!");
+    let changed = local_digest(&targets).unwrap();
+    assert_ne!(changed, expected);
+
+    // 一个文件都没有：照样是同一个算法算出来的值（空字节流的 BLAKE2b-256），不是
+    // "没有值" —— 判定表第 12 格（本机为空）就靠这一条。
+    let missing_zip = dir.join("missing.zip");
+    let nothing = pack(
+        &missing_zip,
+        &[target("rel-savedata", &dir.join("nowhere"))],
+        now(),
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        nothing.digest, "0e5751c026e543b2e8ab2eb06099daa1d1e5df47778f7787faab45cdf12fe3a8",
+        "空集合也走同一个算法"
+    );
+    assert!(nothing.locations.is_empty(), "位置不在本机 ⇒ 没进这一版");
+
+    std::fs::remove_dir_all(&dir).ok();
 }
 
 /// 护栏一：包内成员太多（GAP-5）。上限调到 1，两个成员就该被拒 —— 真实上限是

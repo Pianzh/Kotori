@@ -6,10 +6,12 @@
 //!
 //! 四条规则：
 //!   * 每个存档位置在包内占一个顶层目录：`<key>/<相对路径>`；
-//!   * 包根一份 [`MANIFEST`]，记下每个文件的 `size` 与 `mtime_ms`，还有这一版
-//!     包含哪些存档位置（位置存在但一个文件都没有，也要能被认出来）；
-//!   * 判"谁新"**只看清单里的这两个数**：zip 条目自带的时间戳只有 2 秒精度，
-//!     而且解包方不一定照它落盘，所以它不参与任何判断（见 `unpack`）；
+//!   * 包根一份 [`MANIFEST`]，记下每个文件的 `size` 与 `mtime_ms`、这一版的 `digest`
+//!     （内容值，见 [`digest`]），还有这一版包含哪些存档位置（位置存在但一个文件
+//!     都没有，也要能被认出来）；
+//!   * 判"谁新"**只看清单里的这几个数**：`size` / `mtime_ms` / `digest`。zip 条目
+//!     自带的时间戳只有 2 秒精度，而且解包方不一定照它落盘，所以它不参与任何判断
+//!     （见 `unpack`）；
 //!   * 完整性交给 zip 自带的 CRC32，不额外做内容哈希——哈希是"以后想要内容级
 //!     校验再加"的东西，现在加它等于多一个依赖、多一遍全量读盘。
 //!
@@ -24,6 +26,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::sync::cloud::PackIdentity;
 
+// ⚠ 这一行是 `archive` 的**对外接口**（PLATFORMS.md §6.1 的那两个值 + 纯函数版
+// 算法）。眼下只有打包与测试在用它，而调用它的那些步骤（判定、启动前的核对、横幅）
+// 还没接上来 —— 所以先压住"没人用"的警告，等 §6.10 的第 4～9 步接上就该删掉这行。
+#[allow(unused_imports, dead_code)]
+mod digest;
 mod gather;
 mod materialize;
 mod pack;
@@ -31,6 +38,8 @@ mod pack;
 mod tests;
 mod unpack;
 
+#[allow(unused_imports)]
+pub use digest::{DIGEST_HEX_LEN, digest_of, file_hashes, local_digest, local_mtime_ms};
 pub use materialize::materialize;
 pub use pack::{PackReport, pack};
 pub use unpack::{MergePlan, extract, plan, read_dir_manifest};
@@ -40,9 +49,10 @@ pub const MANIFEST: &str = "kotori-manifest.json";
 /// 清单格式版本。将来改结构时靠它认新旧，而不是猜。
 ///
 /// 2 = 清单里多了 `identity`（云端身份，见 [`crate::sync::cloud::PackIdentity`]）。
+/// 3 = 清单里多了 `digest`（这一版的内容值，见 [`digest`] 与 PLATFORMS.md §6.1(e)）。
 /// 读到一个比自己新的格式就**当场拒绝**（见 `unpack`）：宁可说"这个包我读不了"，
 /// 也不要按老规矩去猜新字段的意思。
-pub const FORMAT: u32 = 2;
+pub const FORMAT: u32 = 3;
 
 /// How a transfer treats a file that already exists at the destination.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -73,6 +83,13 @@ pub struct Manifest {
     /// 取回之前会因此被拒绝，而不会被当成"大概就是同一款吧"。
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub identity: Option<PackIdentity>,
+    /// 这一版的**内容值**（[`digest`]，PLATFORMS.md §6.1(a)）：判"本机与云端是不是
+    /// 同一版"的最终依据。
+    ///
+    /// **缺省 = 这个包没带内容值**（格式 2 及更早的老包）：那时只能按老规矩当"不知道"
+    /// （判定表第 3 格），绝不拿 `size` + `mtime_ms` 猜一个出来。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub digest: Option<String>,
     pub entries: Vec<Entry>,
 }
 

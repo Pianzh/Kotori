@@ -259,6 +259,7 @@ impl Daemon {
         runner: &Runner,
         game_id: &str,
         cloud_key: &str,
+        latest_digest: Option<&str>,
     ) -> Result<IndexGame, String> {
         let (cloud_id, name) = {
             let config = self.config.read().await;
@@ -286,6 +287,8 @@ impl Daemon {
         // 大小那一刀（§12 D2）再填；现在如实当"不知道"。
         game.versions = versions.len();
         game.latest = latest;
+        // 最近一版的内容值来自**刚打完的那个包**（上传成功才走到这里）。
+        game.latest_digest = latest_digest.map(str::to_string);
         Ok(game)
     }
 
@@ -293,7 +296,17 @@ impl Daemon {
     ///
     /// 调用点在"这一版已经上云了"之后 —— 索引没记上顶多让「云端存档」页晚一步看见它，
     /// 而让上传报错会让人以为存档没保住。
-    pub(super) async fn refresh_index_for(&self, runner: &Runner, game_id: &str) {
+    ///
+    /// `latest_digest` 是**刚上云的那一版的内容值**（打包顺手算出来的，随
+    /// [`crate::sync::runner::GameOutcome`] 交回来）：索引里记的它，就是外面判"云端最新
+    /// 那一版与本机是不是同一版"的依据（PLATFORMS.md §6.1(d)）。调用方**只在真的上传
+    /// 成功时**带着 `Some` 进来 —— 没传上去却写了一个值，会让判定以为云端有那一版。
+    pub(super) async fn refresh_index_for(
+        &self,
+        runner: &Runner,
+        game_id: &str,
+        latest_digest: Option<&str>,
+    ) {
         let cloud_key = match self.cloud_key_of(game_id).await {
             Ok(key) => key,
             Err(error) => {
@@ -301,7 +314,10 @@ impl Daemon {
                 return;
             }
         };
-        let entry = match self.index_entry(runner, game_id, &cloud_key).await {
+        let entry = match self
+            .index_entry(runner, game_id, &cloud_key, latest_digest)
+            .await
+        {
             Ok(entry) => entry,
             Err(error) => {
                 tracing::warn!("{game_id}: 索引没记上: {error}");

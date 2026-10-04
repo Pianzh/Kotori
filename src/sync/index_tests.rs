@@ -226,14 +226,93 @@ fn an_unknown_format_version_is_not_guessed_at() {
     assert!(serde_json::from_str::<CloudIndex>(r#"{"format":1}"#).is_err());
 }
 
-/// `is_supported()` 是三条读取路径共同的判据（BUG-25）：自己写的格式认，别的
-/// 一律不认 —— 上面那条只证明了"格式号读得出来"，这一条证明"读出来之后怎么判"。
+/// 索引格式到 2 了（多了 `latest_digest`，PLATFORMS.md §6.1(d)）：老索引**读得进来**
+/// （那一条的内容值是 `None` = "还不知道"），新写出来的总是 2。
 #[test]
-fn only_our_own_format_counts_as_supported() {
-    assert!(CloudIndex::new().is_supported());
+fn an_index_without_a_latest_digest_still_reads_as_unknown() {
+    assert_eq!(INDEX_FORMAT, 2, "索引格式到 2 了（多了 latest_digest）");
+
+    let old = r#"{"format":1,"updated":"2026-09-23T10:00:00Z","games":[
+        {"cloud_key":"one","identity":{"cloud_id":"c1","name":"一","machines":[]},
+         "versions":2,"latest":"20260923T100000Z","size":40,"updated":"2026-09-23T10:00:00Z"}]}"#;
+    let parsed: CloudIndex = serde_json::from_str(old).unwrap();
+    assert_eq!(parsed.games.len(), 1);
+    assert_eq!(
+        parsed.games[0].latest_digest, None,
+        "老索引没有这个字段 ⇒ 不知道，绝不猜一个出来"
+    );
+    // ⚠ 老格式号**必须认**（三条读取路径据此放行）：升级后的第一次启动读到的就是格式 1
+    // 的云端索引与本机缓存，不认它 ⇒ 读不到任何索引 ⇒ 本次既不比较、也不自动上传，
+    // 而用户什么都没做错，只会看到一次莫名其妙的"这次没同步"。它的 `latest_digest`
+    // 是 None（上面刚钉过），判定自然会走"不知道"那条路，比"读不到索引"精确得多。
+    assert!(
+        parsed.is_supported(),
+        "自己的老索引要认，否则升级后第一次启动读不到云端"
+    );
+
+    // 写出去的总是当前格式，而且内容值真的在里面。
+    let mut entry = game("c1", "one", "一", machine("a", &["f1"], &[]));
+    entry.set_digest(Some("a".repeat(64)));
+    let text = serde_json::to_string(&CloudIndex::delta(vec![entry.clone()])).unwrap();
+    assert!(text.contains("\"format\":2"), "{text}");
+    assert!(text.contains(&"a".repeat(64)), "{text}");
+    let round: CloudIndex = serde_json::from_str(&text).unwrap();
+    assert_eq!(round.games[0].latest_digest, entry.latest_digest);
+
+    // 摘要那一步**只在版本名变了时**才动内容值：深扫重建索引那条路会带着同一个版本名
+    // 再报一次（它不下载包，算不出内容值），那必须留着；换了版本名则旧值描述的已经
+    // 不是"最新那一版"了，留着索引就自相矛盾。
+    let mut kept = entry.clone();
+    kept.set_summary(9, entry.latest.clone(), 999);
+    assert_eq!(
+        kept.latest_digest, entry.latest_digest,
+        "版本名没变：内容值仍然描述着它，一个字都不许动"
+    );
+    assert_eq!(kept.versions, 9);
+
+    let mut moved = entry.clone();
+    moved.set_summary(10, Some("20260924T100000Z".to_string()), 999);
+    assert_eq!(
+        moved.latest_digest, None,
+        "版本名变了：旧内容值必须作废（它描述的是上一版）"
+    );
+
+    // 没有内容值的那条，`skip_serializing_if` 把它省掉（老样子）。
+    let bare = serde_json::to_string(&IndexGame::from_identity(
+        "one",
+        GameIdentity::new("c1", "一"),
+    ))
+    .unwrap();
+    assert!(!bare.contains("latest_digest"), "{bare}");
+}
+
+/// `is_supported()` 是三条读取路径共同的判据（BUG-25）：自己写的格式认、**自己的老
+/// 格式也认**（否则升级后第一次启动读不到云端，见上面那条），未来的与垃圾一律不认。
+#[test]
+fn only_our_own_formats_count_as_supported() {
+    assert!(CloudIndex::new().is_supported(), "自己写的就是当前格式");
+
+    // ⚠ 格式 1 = 还没有 `latest_digest` 的那一版。
+    let older = r#"{"format":1,"updated":"2026-09-23T10:00:00Z","games":[]}"#;
+    assert!(
+        serde_json::from_str::<CloudIndex>(older)
+            .unwrap()
+            .is_supported(),
+        "自己的老索引必须认"
+    );
+
+    // 未来版本写的索引：不能拿当前字段去解释它（BUG-25）。
     let future = r#"{"format":99,"updated":"2026-09-23T10:00:00Z","games":[]}"#;
     assert!(
         !serde_json::from_str::<CloudIndex>(future)
+            .unwrap()
+            .is_supported()
+    );
+
+    // 0 是垃圾，不是"更老的一版"。
+    let garbage = r#"{"format":0,"updated":"2026-09-23T10:00:00Z","games":[]}"#;
+    assert!(
+        !serde_json::from_str::<CloudIndex>(garbage)
             .unwrap()
             .is_supported()
     );

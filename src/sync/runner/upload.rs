@@ -62,9 +62,10 @@ impl Runner {
 
         if let Ok(report) = &send {
             tracing::info!(
-                "{game_id}: 打包完成 {stamp}（{} 个文件，跳过 {} 个被排除的）",
+                "{game_id}: 打包完成 {stamp}（{} 个文件，跳过 {} 个被排除的，digest {}）",
                 report.entries.len(),
-                report.excluded
+                report.excluded,
+                &report.digest[..8.min(report.digest.len())]
             );
         }
 
@@ -88,7 +89,11 @@ impl Runner {
             tracing::warn!("{game_id}: 清理旧版本失败: {error}");
         }
 
-        GameOutcome::from_locations(game_id, name, outcomes)
+        // 内容值随结果一起交回去：调用方拿它写索引的 `latest_digest`（§6.6 第 1 步）——
+        // 写在索引里的就是**真的上去了的那一版**，不必事后回本机再算一遍。上传失败
+        // （`Err`）时没有值，调用方也就不会去写索引。
+        let digest = send.as_ref().ok().map(|report| report.digest.clone());
+        GameOutcome::from_locations(game_id, name, outcomes).with_digest(digest)
     }
 }
 
