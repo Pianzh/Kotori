@@ -146,7 +146,10 @@ impl EncryptedFile {
         entries: &[(SecretKey, String)],
     ) -> Result<(), SecretError> {
         let mut password = password.to_string();
-        if password.len() < MIN_MASTER_PASSWORD {
+        // 按**字符**数,不按字节:三个汉字是 9 个字节,而 UI 那边卡的是 `chars().count()`
+        // (用户数出来的也是字)。两边必须是同一把尺子,否则中文密码在界面上被拒、在守护
+        // 进程这边却放行。
+        if password.chars().count() < MIN_MASTER_PASSWORD {
             return Err(SecretError::MasterPasswordTooShort {
                 minimum: MIN_MASTER_PASSWORD,
             });
@@ -399,6 +402,11 @@ fn to_hex(bytes: &[u8]) -> String {
 
 fn from_hex(text: &str) -> Option<Vec<u8>> {
     if !text.len().is_multiple_of(2) {
+        return None;
+    }
+    // 自己查字符,不要 `from_str_radix` 那份宽容:它认前导 `+`(`"+f"` → 15),而 `+`
+    // 不是十六进制数字 —— 一份坏掉的密文不该被"解"出来。
+    if !text.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return None;
     }
     (0..text.len())

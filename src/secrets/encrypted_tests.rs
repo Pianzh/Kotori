@@ -178,6 +178,20 @@ fn a_short_password_is_refused_before_anything_is_written() {
     assert!(!store.exists(), "拒绝之后不该留下半个文件");
 }
 
+/// 下限按**字符**数算:三个汉字是 9 个字节,却只有 3 个字符。UI 那边卡的就是字符数,
+/// 守护进程这边要是按字节算,就会出现"界面上被拒、这边放行"。
+#[test]
+fn the_password_minimum_counts_characters_not_bytes() {
+    let temp = TempFile::new("short-cjk");
+    let store = EncryptedFile::new(&temp.0);
+    let error = store.create("三个字", &entries()).unwrap_err();
+    assert!(
+        matches!(error, SecretError::MasterPasswordTooShort { .. }),
+        "{error}"
+    );
+    assert!(!store.exists(), "拒绝之后不该留下半个文件");
+}
+
 #[test]
 fn a_missing_file_reads_as_locked_rather_than_corrupt() {
     let temp = TempFile::new("absent");
@@ -211,4 +225,5 @@ fn hex_round_trips_and_rejects_nonsense() {
     assert_eq!(from_hex(""), Some(Vec::new()));
     assert_eq!(from_hex("abc"), None, "odd length");
     assert_eq!(from_hex("zz"), None, "not hex");
+    assert_eq!(from_hex("+f"), None, "前导 + 不是十六进制数字");
 }

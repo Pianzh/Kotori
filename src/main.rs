@@ -126,12 +126,20 @@ fn main() -> anyhow::Result<()> {
     // seconds), and drowning the terminal is itself a way to make the UI feel
     // frozen. Our own logs stay at `info`; the noisy modules are pushed to
     // `warn`, and `RUST_LOG` still overrides everything when debugging.
-    const DEFAULT_LOG: &str = "info,\
-         wgpu_core=warn,wgpu_hal=warn,wgpu_types=warn,naga=warn,\
+    const NOISY: &str = "wgpu_core=warn,wgpu_hal=warn,wgpu_types=warn,naga=warn,\
          winit=warn,calloop=warn,sctk=warn,sctk_adwaita=warn";
+    // `daemon.log_level` 从前是个摆设:这里只认 `RUST_LOG`,在配置里改它完全没有效果。
+    // 规则改成:`RUST_LOG` 优先(调试时走最短路径),缺省时用配置里那个级别,再缺省才是
+    // 内置的 `info`;那些吵闹的图形栈模块永远压在 `warn`。
+    let configured = crate::config::load()
+        .ok()
+        .map(|config| config.daemon.log_level.trim().to_string())
+        .filter(|level| !level.is_empty())
+        .unwrap_or_else(|| "info".to_string());
     fmt()
         .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG)),
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new(format!("{configured},{NOISY}"))),
         )
         .with_writer(LogWriter {
             file: matches!(&command, cli::Command::Ui)
