@@ -31,6 +31,8 @@ use crate::config::SyncConfig;
 use crate::secrets::Keyring;
 
 pub use self::outcome::{GameOutcome, LocationOutcome};
+/// 启动前取回的结果（§6.5）：只有"真的铺了"才允许调用方去写基线。
+pub use self::pull::PullResult;
 pub(crate) use self::staging::sweep_stale;
 
 mod identity;

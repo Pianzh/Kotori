@@ -18,8 +18,12 @@
 //! 那两臂在 `tests/ipc_e2e/sync.rs` 里用假 rclone 验 —— 单测里 `find_kopia` 会回退到
 //! `PATH`，那台机器上装没装 kopia 会决定走哪条路，在这里写断言等于把 CI 的步骤顺序
 //! 变成测试的前提。
+//!
+//! 例外（**只有一条**）：下面那条真的调 `sync_after_game_exit` 的测试。它断言的是
+//! **闸门 b 在函数里真的被问到了**，而"过了这一道之后走哪条路"不是它管的事
+//! （所以它只断言"不是 `Skipped`"）。
 
-use super::super::{ExitUpload, SkipReason, exit_upload_gate};
+use super::super::{ExitUpload, LaunchSync, SkipReason, exit_upload_gate};
 use super::{call, daemon_at, demo_config};
 use crate::config::Config;
 use crate::secrets::testing::FakeTool;
@@ -39,7 +43,7 @@ fn with_game(config: &Config, edit: impl FnOnce(&mut crate::config::GameConfig))
 fn the_per_game_switch_names_itself_instead_of_saying_nothing() {
     let config = with_game(&demo_config(), |game| game.sync_enabled = false);
 
-    let refusal = exit_upload_gate("demo", &config).expect_err("关掉这一款就该被挡下");
+    let refusal = exit_upload_gate("demo", &config, true).expect_err("关掉这一款就该被挡下");
     assert_eq!(
         refusal.reason,
         SkipReason::PerGameOff,
@@ -57,7 +61,7 @@ fn the_global_switch_is_reported_too() {
     let mut config = demo_config();
     config.sync.enabled = false;
 
-    let refusal = exit_upload_gate("demo", &config).expect_err("总开关关着就该被挡下");
+    let refusal = exit_upload_gate("demo", &config, true).expect_err("总开关关着就该被挡下");
     assert_eq!(refusal.reason, SkipReason::SyncOff, "{}", refusal.detail);
     assert!(
         refusal.detail.contains("总开关"),
@@ -71,7 +75,7 @@ fn the_global_switch_is_reported_too() {
 fn a_game_without_save_locations_says_what_is_missing() {
     let config = with_game(&demo_config(), |game| game.save_paths.clear());
 
-    let refusal = exit_upload_gate("demo", &config).expect_err("没填位置就该被挡下");
+    let refusal = exit_upload_gate("demo", &config, true).expect_err("没填位置就该被挡下");
     assert_eq!(
         refusal.reason,
         SkipReason::NoSavePaths,
@@ -90,7 +94,7 @@ fn a_game_without_save_locations_says_what_is_missing() {
 fn a_game_missing_from_the_config_is_not_reported_as_a_closed_switch() {
     let config = demo_config();
 
-    let refusal = exit_upload_gate("ghost", &config).expect_err("配置里没有就该说没有");
+    let refusal = exit_upload_gate("ghost", &config, true).expect_err("配置里没有就该说没有");
     assert_eq!(
         refusal.reason,
         SkipReason::UnknownGame,
@@ -111,7 +115,7 @@ fn the_switch_wins_over_the_missing_locations_so_the_message_stays_useful() {
         game.save_paths.clear();
     });
 
-    let refusal = exit_upload_gate("demo", &config).expect_err("两道都关着");
+    let refusal = exit_upload_gate("demo", &config, true).expect_err("两道都关着");
     assert_eq!(refusal.reason, SkipReason::PerGameOff, "{}", refusal.detail);
 }
 
@@ -120,9 +124,134 @@ fn the_switch_wins_over_the_missing_locations_so_the_message_stays_useful() {
 fn a_ready_game_gets_its_settings_back() {
     let config = demo_config();
 
-    let settings = exit_upload_gate("demo", &config).expect("默认就该是通的");
+    let settings = exit_upload_gate("demo", &config, true).expect("默认就该是通的");
     assert_eq!(settings.bucket, "bkt");
     assert!(settings.enabled);
+}
+
+/// ⚠ **闸门 b**（PLATFORMS.md §6.6）：启动前没成功跟云端对上账 ⇒ 退出时**不上传**。
+///
+/// 这一条是纯函数那一半：牌子没立起来就是"不许传"，而它必须**说得出是哪件事** ——
+/// 用户能看到的只有"没传"，说不出原因的话下一步就无从下手（这正是 2026-09-28 那次
+/// 排查的根因）。
+#[test]
+fn a_launch_that_never_reconciled_does_not_upload_on_exit() {
+    let config = demo_config();
+
+    let refusal = exit_upload_gate("demo", &config, false).expect_err("没对上账就不该传");
+    assert_eq!(
+        refusal.reason,
+        SkipReason::LaunchSyncNotDone,
+        "{}",
+        refusal.detail
+    );
+    assert_eq!(
+        refusal.reason.code(),
+        "launch_sync_not_done",
+        "界面读的就是这个字符串"
+    );
+    // 文案要能指出下一步：两件用户真的能做的事都得在里面。
+    assert!(refusal.detail.contains("启动"), "{}", refusal.detail);
+    assert!(refusal.detail.contains("立即同步"), "{}", refusal.detail);
+}
+
+/// 对上了账 ⇒ 这一道不拦（配置那几道照旧各问各的）。
+#[test]
+fn a_reconciled_launch_may_upload_on_exit() {
+    let config = demo_config();
+
+    assert!(
+        exit_upload_gate("demo", &config, true).is_ok(),
+        "对上过账之后，闸门 b 不该再拦"
+    );
+}
+
+/// 配置上关着、牌子也没立：**先说配置那条**。
+///
+/// 两条都成立时，"这一款的开关关着"是用户现在就能去改的（而且改完还得对账一次），
+/// 而"这次没对上账"会随下一次启动自然消失 —— 顺序反了会把用户引到错的地方。
+#[test]
+fn the_config_gates_are_reported_before_the_session_one() {
+    let config = with_game(&demo_config(), |game| game.sync_enabled = false);
+
+    let refusal = exit_upload_gate("demo", &config, false).expect_err("两道都关着");
+    assert_eq!(refusal.reason, SkipReason::PerGameOff, "{}", refusal.detail);
+}
+
+/// 那块牌子是**每款一份**、而且**每次启动前都会被撤掉**重来。
+///
+/// ⚠ 后半条是这条测试的重点：牌子要是撤不掉，上一次那一局的对账就会替下一局作证
+/// —— 而"下一局"完全可能是自动追踪（游戏不是 kotori 启动的）开出来的那一局。
+#[test]
+fn the_launch_ledger_is_per_game_and_is_taken_back_at_each_launch() {
+    let ledger = LaunchSync::new();
+    assert!(!ledger.is_settled("demo"), "没对过账就是没立起来");
+
+    ledger.settle("demo");
+    assert!(ledger.is_settled("demo"));
+    assert!(!ledger.is_settled("other"), "牌子是每款一份，不许串台");
+
+    ledger.forget("demo");
+    assert!(!ledger.is_settled("demo"), "撤了就是没立起来");
+}
+
+/// ⚠ 真的走一遍 `sync_after_game_exit`：**没经过启动前对账**的那一局退出时不上传，
+/// 而且报的是这件事本身。
+///
+/// 这一条故意用真的那个函数（不是光问纯函数）：牌子的默认状态就是"没立起来" ——
+/// 谁忘了在启动前立它，谁就会在这里被抓住。
+#[tokio::test]
+async fn an_exit_without_a_reconciled_launch_is_skipped_with_its_own_reason() {
+    let fake = FakeTool::new("exit-launch-sync");
+    let (daemon, path) = daemon_at(fake.keyring());
+
+    // 这一款这一局**没走**启动前那条路（例如游戏不是 kotori 启动的）。
+    let outcome = daemon.sync_after_game_exit("demo").await;
+    let ExitUpload::Skipped(refusal) = outcome else {
+        panic!("没对上账就不该去上传：{outcome:?}");
+    };
+    assert_eq!(
+        refusal.reason,
+        SkipReason::LaunchSyncNotDone,
+        "{}",
+        refusal.detail
+    );
+
+    // 界面报的是同一份判据、同一句话。
+    let status = call(&daemon, "sync.status", "").await;
+    assert_eq!(
+        status["result"]["games"][0]["auto_upload_blocked"]["reason"], "launch_sync_not_done",
+        "界面必须说得出是哪一道闸门关着：{status}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+/// 对上了账 ⇒ 退出上传**过得了这一道**（走到引擎那一步才可能失败）。
+///
+/// ⚠ 断言的是"不是 `Skipped`"：单测夹具里没有引擎/凭据，所以它必然在下一段掉头 ——
+/// 那正是我们要的（说明闸门放行了）。要是它仍然被挡住，这条会红。
+#[tokio::test]
+async fn a_reconciled_exit_gets_past_the_session_gate() {
+    let fake = FakeTool::new("exit-launch-sync-ok");
+    let (daemon, path) = daemon_at(fake.keyring());
+
+    // 启动前那条路立起来的牌子。
+    daemon.sync.launch_sync.settle("demo");
+    let status = call(&daemon, "sync.status", "").await;
+    assert_eq!(
+        status["result"]["games"][0]["auto_upload_blocked"],
+        serde_json::Value::Null,
+        "对上过账之后界面不该再报闸门关着：{status}"
+    );
+
+    let outcome = daemon.sync_after_game_exit("demo").await;
+    assert!(
+        !matches!(outcome, ExitUpload::Skipped(_)),
+        "对上过账的那一局不该被闸门 b 拦住：{outcome:?}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
 }
 
 /// ⚠ **本文件存在的理由**（用户 2026-09-28）：启动前那一问里选「关掉这一款的同步」会把
@@ -143,7 +272,7 @@ async fn answering_off_in_the_self_check_permanently_stops_exit_uploads() {
     //   不是 deref 能不能coerce 的问题），而判据本来就不要锁。
     let starting = daemon.config.read().await.clone();
     assert_eq!(
-        exit_upload_gate("demo", &starting)
+        exit_upload_gate("demo", &starting, true)
             .expect("起点就该是通的")
             .bucket,
         "bkt"
@@ -185,7 +314,7 @@ async fn answering_off_in_the_self_check_permanently_stops_exit_uploads() {
     assert_eq!(value["result"]["success"], true, "{value}");
     let reopened = daemon.config.read().await.clone();
     assert!(
-        exit_upload_gate("demo", &reopened).is_ok(),
+        exit_upload_gate("demo", &reopened, true).is_ok(),
         "重新打开之后就该恢复自动上传"
     );
 
@@ -250,6 +379,59 @@ async fn the_status_reason_and_the_returned_reason_cannot_diverge() {
         returned.code(),
         "界面报「{reported}」而实际是「{}」——两处说法分叉了",
         returned.code()
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+/// ⚠ 观测会话那条路（游戏不是 kotori 启动的）**只判定、绝不取回**：读不到云端索引时
+/// **不许**立牌子（`sync_rpc::launch_sync::settle_from_observation`）。
+///
+/// 单测夹具里没有引擎/凭据，"云端读不到"是必然结果，所以这条钉的正是"宁可不传"那一半
+/// —— 立牌子的那一半（`Nothing` / `UploadLater`）由 e2e 用真引擎钉
+/// （`tests/ipc_e2e/sync_exit_upload.rs` 那两条）。
+#[tokio::test]
+async fn an_observation_that_cannot_read_the_cloud_does_not_settle() {
+    let fake = FakeTool::new("observe-no-settle");
+    let (daemon, path) = daemon_at(fake.keyring());
+    assert!(!daemon.sync.launch_sync.is_settled("demo"));
+
+    daemon.settle_from_observation("demo").await;
+
+    assert!(
+        !daemon.sync.launch_sync.is_settled("demo"),
+        "读不到云端就等于不知道，立了牌子就是拿本机去盖云端"
+    );
+    // 而且它**安静**：不打扰用户、也不在界面上留一条"取回"（那条路只判定，什么都没搬）。
+    let status = call(&daemon, "sync.status", "").await;
+    assert_eq!(
+        status["result"]["games"][0]["last"],
+        serde_json::Value::Null,
+        "观测会话只判定：不该在同步记录里留下任何一条：{status}"
+    );
+
+    std::fs::remove_dir_all(path.parent().unwrap()).ok();
+}
+
+/// ⚠ 观测会话的对账说"不知道"时，**上一次那一局的牌子不许继续作数**。
+///
+/// 这正是"每一次对账一开始就撤牌子"（`LaunchSync` 的生命周期）在自动追踪那条路上的样子：
+/// 先经 kotori 启动过一局、后来双击图标又玩一局 —— 后一局没能对上账，它的退出就不该
+/// 借着上一次的牌子去上传。
+#[tokio::test]
+async fn an_observation_that_cannot_read_the_cloud_takes_the_standing_marker_back() {
+    let fake = FakeTool::new("observe-forget");
+    let (daemon, path) = daemon_at(fake.keyring());
+
+    // 上一局（从 kotori 点「启动」）立起来的牌子。
+    daemon.sync.launch_sync.settle("demo");
+    assert!(daemon.sync.launch_sync.is_settled("demo"));
+
+    daemon.settle_from_observation("demo").await;
+
+    assert!(
+        !daemon.sync.launch_sync.is_settled("demo"),
+        "这一次对账没能对上 ⇒ 旧的牌子要撤掉，不许替这一局作证"
     );
 
     std::fs::remove_dir_all(path.parent().unwrap()).ok();

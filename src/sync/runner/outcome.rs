@@ -50,9 +50,18 @@ pub struct GameOutcome {
     /// 索引更新）拿它写下去，于是索引说的就是**真的上去了的那一版**，而不是"现在再
     /// 去本机算一遍"（那是第二次读盘，而且期间存档可能又变了）。
     ///
-    /// 不进 JSON：界面与 CLI 都不需要它（判定那套还没接上来）。
+    /// 基线的 `digest` 也取自它（PLATFORMS.md §6.6 第 3 步）。
+    ///
+    /// 不进 JSON：界面与 CLI 都不需要它。
     #[serde(skip)]
     pub digest: Option<String>,
+    /// 这一趟上云的那一版的**版本名**（只有上传成功才有）。
+    ///
+    /// 与 [`Self::digest`] 是同一件事的两个字段：上传成功之后要把"我认账的那一版"
+    /// （基线）推进到刚上云的那一版，而那需要**名字 + 内容值**两样（§6.6 第 3 步）。
+    /// 从前只有内容值，于是写基线还得多问云端一次"最新那一版叫什么"。
+    #[serde(skip)]
+    pub stamp: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -65,6 +74,7 @@ impl GameOutcome {
             ok: false,
             locations: Vec::new(),
             digest: None,
+            stamp: None,
             error: Some(error.into()),
         }
     }
@@ -84,12 +94,15 @@ impl GameOutcome {
             ok: error.is_none(),
             locations,
             digest: None,
+            stamp: None,
             error,
         }
     }
 
-    /// 同一个结果，但带上"这一版的内容值"（上传成功后由 [`super::Runner::upload`] 填）。
-    pub(super) fn with_digest(mut self, digest: Option<String>) -> Self {
+    /// 同一个结果，但带上"这一版是谁"（上传成功后由 [`super::Runner::upload`] 填）：
+    /// 版本名 + 内容值，写给索引（§6.6 第 1 步）与基线（§6.6 第 3 步）。
+    pub(super) fn with_version(mut self, stamp: Option<String>, digest: Option<String>) -> Self {
+        self.stamp = stamp;
         self.digest = digest;
         self
     }

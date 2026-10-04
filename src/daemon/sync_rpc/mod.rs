@@ -46,6 +46,9 @@ pub(super) struct SyncState {
     /// 新目录,凭据也得跟过去(见 [`Self::relocate_credentials`],BUG-27)。
     paths: Mutex<CredentialPaths>,
     records: Mutex<HashMap<String, SyncRecord>>,
+    /// 「本次启动前跟云端对上过账」的账本（PLATFORMS.md §6.6 闸门 b）：退出上传那道闸门与
+    /// `sync.status` 都读它（一处记账、两处看同一份）；立/撤的时机写在 [`LaunchSync`] 头上。
+    launch_sync: LaunchSync,
 }
 
 /// 两个凭据文件的位置:主密码加密的那份,与默认的明文那份。它们永远是同一目录
@@ -80,6 +83,7 @@ impl SyncState {
                 plain: plain_path,
             }),
             records: Mutex::new(HashMap::new()),
+            launch_sync: LaunchSync::new(),
         }
     }
 
@@ -474,6 +478,9 @@ mod delete;
 mod exit_upload;
 mod identity;
 mod index;
+mod launch_cloud;
+mod launch_report;
+mod launch_sync;
 mod matching;
 mod pairing;
 mod rows;
@@ -487,3 +494,5 @@ mod tests_credentials;
 // 「退出后自动上传为什么没跑」那一族。`actions`（真的去传）与 `status`（报给界面）
 // 共用同一份判据与文案，见 `exit_upload` 顶上的说明。
 pub(in crate::daemon) use exit_upload::{ExitUpload, Refusal, SkipReason, exit_upload_gate};
+// 「本次启动前跟云端对上过账」那块牌子：`launch_sync` 立它，`actions`/`status` 读它。
+pub(in crate::daemon) use launch_sync::LaunchSync;

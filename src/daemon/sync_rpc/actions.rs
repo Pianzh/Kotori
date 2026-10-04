@@ -10,8 +10,8 @@ use crate::config::{SyncConfig, SyncEngine};
 use crate::secrets::Keyring;
 
 use super::{
-    CHECK_TIMEOUT, Daemon, ExitUpload, GameOutcome, PULL_TIMEOUT, Refusal, SETTLE_DELAY,
-    SkipReason, exit_upload_gate, sync,
+    CHECK_TIMEOUT, Daemon, ExitUpload, GameOutcome, Refusal, SETTLE_DELAY, SkipReason,
+    exit_upload_gate, sync,
 };
 
 /// 「恢复」自己的总上限：它要下载、解包、再铺回本机，比"点开看一眼"慢得多 ——
@@ -141,6 +141,10 @@ impl Daemon {
                 // 与本机是不是同一版"的依据（PLATFORMS.md §6.6 第 1 步）。
                 self.refresh_index_for(&runner, &id, outcome.digest.as_deref())
                     .await;
+                // 基线也跟着走（§6.6 第 3 步）：上传成功是它**唯一**两个更新时机之一
+                // （另一个是取回成功）。不写的话，下一次启动会把"我自己刚传上去的那一版"
+                // 当成"云端动了"，再拉回来一遍。
+                self.note_uploaded_baseline(&id, &outcome, &targets);
             }
             outcomes.push(outcome);
         }
@@ -277,70 +281,9 @@ impl Daemon {
         Ok(json!({ "ok": outcome.ok, "game": outcome }))
     }
 
-    /// Pull the newest cloud state before a game starts.
-    ///
-    /// Returns `None` when there is nothing to do (sync off, no save paths, no
-    /// rclone). Any failure is reported in the returned object and **never**
-    /// stops the launch: the user asked to play a game.
-    pub(in crate::daemon) async fn sync_pull_before_launch(&self, game_id: &str) -> Option<Value> {
-        let settings = {
-            let config = self.config.read().await;
-            if !config.sync.enabled {
-                return None;
-            }
-            let game = config.games.get(game_id)?;
-            if game.save_paths.is_empty() {
-                return None;
-            }
-            // 这一款的开关关着 ⇒ **不自动取回**。手动「取回存档」是用户自己按的，
-            // 走的是另一条路（`rpc_sync_restore`），不受这个开关限制。
-            if !game.sync_enabled {
-                tracing::debug!("{game_id}: 这一款的云同步开关关着，启动前不取回");
-                return None;
-            }
-            config.sync.clone()
-        };
-
-        let (name, targets) = match self.sync_targets(game_id).await {
-            Ok(pair) => pair,
-            Err(error) => return Some(json!({ "ok": false, "error": error })),
-        };
-        let runner = match self.sync_runner(&settings) {
-            Ok(runner) => runner,
-            Err(error) => return Some(json!({ "ok": false, "error": error })),
-        };
-
-        // ⚠ 取回那条路**绝不认领身份**：认领是上传的事。没认领过就是"还没配对"，
-        // 闸门据此拒绝取回（宁可不动，也不猜）——见 `crate::sync::cloud`。
-        let cloud_id = self.cloud_id_of(game_id).await.unwrap_or(None);
-        // 这条路的失败**绝不能拦住启动**（用户要的是玩游戏），所以错误也变成回话。
-        let cloud_key = match self.cloud_key_of(game_id).await {
-            Ok(key) => key,
-            Err(error) => return Some(json!({ "ok": false, "error": error })),
-        };
-
-        let outcome = match tokio::time::timeout(
-            PULL_TIMEOUT,
-            runner.pull(game_id, &name, &cloud_key, &targets, cloud_id.as_deref()),
-        )
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(_) => {
-                tracing::warn!("{game_id}: 启动前拉取超时（{PULL_TIMEOUT:?}），直接启动游戏");
-                return Some(json!({
-                    "ok": false,
-                    "error": format!("拉取超过 {} 秒，已跳过", PULL_TIMEOUT.as_secs()),
-                }));
-            }
-        };
-
-        self.sync.remember(game_id, "取回", &outcome);
-        if !outcome.ok {
-            tracing::warn!("{game_id}: 启动前拉取失败: {:?}", outcome.error);
-        }
-        Some(serde_json::to_value(&outcome).unwrap_or(Value::Null))
-    }
+    // ⚠ 「启动前取回」那一整套（三方比较 → 该拉的才拉 → 先看再覆盖 → 基线 → 会话标记）
+    // 从本文件搬去了 `sync_rpc/launch_sync.rs`：它自己就有一张判定表要逐格对齐
+    // （PLATFORMS.md §6.3），与"真的搬存档"的几个 RPC 放一起会长到读不动。
 
     /// Upload after a game exits.
     ///
@@ -358,11 +301,15 @@ impl Daemon {
     /// （又一次网络往返），三段哪段慢，日志里一眼就有答案。
     pub(in crate::daemon) async fn sync_after_game_exit(&self, game_id: &str) -> ExitUpload {
         let started = std::time::Instant::now();
+        // 闸门第三问是"本次启动前跟云端对上过账了吗"（§6.6 闸门 b）。**在这里读、
+        // 不在这里撤**：那块牌子的意思是"这一局已经对上过账"，一局玩完传上去了这句话
+        // 仍然成立（生命周期写在 `LaunchSync` 头上）。
+        let launch_sync = self.sync.launch_sync.is_settled(game_id);
         let settings = {
             // ⚠ 读锁只在这几行里，`exit_upload_gate` 是纯函数、没有 `await`（PLATFORMS.md
             //   §0.1 第 12 条：配置读锁绝不许跨 `await` 持有）。
             let config = self.config.read().await;
-            match exit_upload_gate(game_id, &config) {
+            match exit_upload_gate(game_id, &config, launch_sync) {
                 Ok(settings) => settings,
                 Err(refusal) => {
                     self.sync
@@ -426,6 +373,8 @@ impl Daemon {
             let index_started = std::time::Instant::now();
             self.refresh_index_for(&runner, game_id, outcome.digest.as_deref())
                 .await;
+            // 基线跟上（§6.6 第 3 步）：上传成功之后"我认账的那一版"就是刚上去的这一版。
+            self.note_uploaded_baseline(game_id, &outcome, &targets);
             tracing::info!(
                 "{game_id}: 退出后已同步存档（全程 {:?}：认身份 {identity_took:?} / \
                  上传 {upload_took:?} / 索引 {:?}）",

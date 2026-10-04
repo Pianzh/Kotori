@@ -178,13 +178,21 @@ fn uploading_claims_a_cloud_identity_and_keeps_it() {
     );
 }
 
-/// 防错配闸：身份对不上时**一个文件都不铺**（自动取回与手动恢复两条路）。
+/// 防错配闸：身份对不上时**一个文件都不铺**。
 ///
 /// 这是整件事里唯一不可逆的错误 —— 把另一款游戏的存档铺进本机这一款，用户下一次
 /// 上传再把它推回云端（静默损坏存档）。这里用"改配置里的身份"来造这个局面：本机
 /// 上传过一次（因此有了身份），然后把那份身份换成另一个。
+///
+/// ⚠ **自动取回那半边换了行为**（PLATFORMS.md §6.10 第 6 步：从前是"无条件把云端最新
+/// 那一版铺上去"，现在是"三方比较 → 该拉的才拉"）。身份被换掉之后，本机那个 id 在索引
+/// 里**根本找不到** ⇒ 判定落在"云端没有这一款"（第 2 格）⇒ 这一次**压根不去取回**，
+/// 也就走不到防错配闸。判错配闸本身照旧有效，只是可达的路径变成：
+///   * 手动恢复 —— 就是下面这一段；
+///   * 包与索引不一致（索引说这一版是本机的、包里却写着别人的身份）——
+///     闸门在 `Runner::pull` 里，单测 `sync::runner::pull_tests::a_pull_from_another_identity_touches_nothing`。
 #[test]
-fn a_mismatched_identity_stops_both_pull_and_restore() {
+fn a_mismatched_identity_never_lays_anything_down() {
     let mut fixture = Fixture::new("identity-gate");
     fixture.enable_fake_sync(true);
     let probe = fixture.enable_fake_display();
@@ -248,8 +256,9 @@ fn a_mismatched_identity_stops_both_pull_and_restore() {
         "拒绝就是拒绝：一个文件都不许动"
     );
 
-    // 再走自动取回那条路（启动游戏之前）。
-    std::fs::remove_dir_all(&saves).unwrap();
+    // 再走自动取回那条路（启动游戏之前）：本机存档先照原样留着。
+    std::fs::write(saves.join("save.dat"), b"my own progress").unwrap();
+    let before = std::fs::read_to_string(saves.join("save.dat")).unwrap();
     let response = fixture.rpc("game.launch", json!({ "id": "gate-game" }));
     assert!(
         response["error"]["message"]
@@ -258,12 +267,13 @@ fn a_mismatched_identity_stops_both_pull_and_restore() {
         "假 gamescope 立刻退出: {response}"
     );
     assert!(probe.exists(), "启动那条路还是走到了 gamescope");
-    assert!(
-        !saves.join("save.dat").exists(),
+    assert_eq!(
+        std::fs::read_to_string(saves.join("save.dat")).unwrap(),
+        before,
         "身份对不上时绝不能把云端的存档铺下来"
     );
 
-    // 界面看得见"为什么没铺"：状态里那一条取回记录带着原因。
+    // 界面看得见"为什么没取回"：状态里那一条记录带着原因（"云端没有这一款" ⇒ 不取回）。
     let status = fixture.rpc("sync.status", json!({}));
     let record = status["result"]["games"]
         .as_array()
@@ -275,11 +285,14 @@ fn a_mismatched_identity_stops_both_pull_and_restore() {
     assert!(
         record["last"]["detail"]
             .as_str()
-            .is_some_and(|detail| detail.contains("另一个身份")),
-        "状态里要说清为什么没取回: {status}"
+            .is_some_and(|detail| detail.contains("云端")),
+        "状态里要说清这一局为什么没取回: {status}"
     );
 
-    // --- 把身份改回去：同一台机器的取回立刻恢复正常 -------------------------
+    // --- 把身份改回去：**手动**恢复立刻恢复正常 ----------------------------
+    //
+    // ⚠ 这里用「恢复」而不是「启动前取回」：手动恢复是**用户自己按的**，不受判定表
+    // 影响（`Merge::Replace`），所以它才是"身份对得上就拿得回来"最直接的验法。
     let tampered = std::fs::read_to_string(fixture.config.clone()).unwrap();
     std::fs::write(
         fixture.config.clone(),
@@ -291,17 +304,12 @@ fn a_mismatched_identity_stops_both_pull_and_restore() {
         true
     );
 
-    let response = fixture.rpc("game.launch", json!({ "id": "gate-game" }));
-    assert!(
-        response["error"]["message"]
-            .as_str()
-            .is_some_and(|m| m.contains("gamescope")),
-        "假 gamescope 立刻退出: {response}"
-    );
+    let response = fixture.rpc("sync.restore", json!({ "id": "gate-game" }));
+    assert_eq!(response["result"]["ok"], true, "{response}");
     assert_eq!(
         std::fs::read_to_string(saves.join("save.dat")).unwrap(),
         "from-cloud",
-        "身份对得上时，启动前照样把云端的存档取回来"
+        "身份对得上时，手动恢复拿得回云端那一版"
     );
 }
 

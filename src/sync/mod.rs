@@ -72,11 +72,11 @@ pub const fn null_config_path() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
-// ⚠ 这两行是 PLATFORMS.md §6 的第 4/5 步（基线 + 判定），现在还**没有人调用**：
-// 接进启动前的流程是第 6 步。所以两个文件各自在头顶压了一行 `#![allow(dead_code)]`，
-// 第 6 步接上之后**连同那两个文件的 `#![allow(dead_code)]` 一起删掉**。
-mod baseline;
-mod decision;
+// ⚠ 这两个模块从第 6 步起**真的有人用了**（`daemon::sync_rpc::launch_sync`）：基线是
+// 启动前判定与退出上传共用的账本，判定是那一层唯一的判据来源。所以它们对 crate 内可见，
+// 但**不必**对外可见（`sync` 这一层给外部的名字，见下面那一串 `pub use`）。
+pub(crate) mod baseline;
+pub(crate) mod decision;
 mod rclone_args;
 mod rclone_env;
 mod remote_paths;

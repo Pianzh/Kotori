@@ -103,13 +103,18 @@ impl Daemon {
                 // 从前一个字都不说：用户只能看到"手动能传"，没法知道是**哪一道闸门**
                 // 关着。这里报的是与日志、与 `actions::sync_after_game_exit` 同一份判据
                 // （`exit_upload_gate`），所以界面说的和日志说的不会分叉。
-                let auto_upload_blocked = match exit_upload_gate(id, &config) {
-                    Ok(_) => Value::Null,
-                    Err(refusal) => json!({
-                        "reason": refusal.reason.code(),
-                        "detail": refusal.detail,
-                    }),
-                };
+                //
+                // ⚠ 第三问（§6.6 闸门 b）是**会话里**的状态：这一款在这个 daemon 这一趟
+                // 运行里还没有经过启动前的对账 ⇒ 现在起一局、退出，是不会自动上传的。
+                // 一并报出来（同一份判据、同一份文案），界面不必自己拼这句话。
+                let auto_upload_blocked =
+                    match exit_upload_gate(id, &config, self.sync.launch_sync.is_settled(id)) {
+                        Ok(_) => Value::Null,
+                        Err(refusal) => json!({
+                            "reason": refusal.reason.code(),
+                            "detail": refusal.detail,
+                        }),
+                    };
                 json!({
                     "id": id,
                     "name": game.name,

@@ -202,6 +202,15 @@ impl Daemon {
             .start_session(&spec)
             .await
             .map_err(|e| e.to_string())?;
+        // ⚠ 观测会话也要**跟云端对上账**（`PLATFORMS.md` §6.6 闸门 b）：这一局的退出照样
+        // 要自动上传（用户 2026-09-28 报的正是"双击图标玩完没传"），而闸门 b 要求"这一局
+        // 跟云端对上过账"。游戏已经在跑了，所以那条路**只判定、绝不取回、也不读存档内容**
+        // ——规矩写在 `launch_sync::settle_from_observation` 头上。
+        //
+        // 放在 `start_session` **之后**：会话真开出来了才算"这一局"，开不出来就不该立牌子。
+        // ⚠ 它可能会读一次云端索引（本机还没有缓存时）—— 这是这条路上唯一一次网络往返，
+        // 上限是 `CHECK_TIMEOUT`；那点延迟换的是"这一局的退出到底传不传"这个判决。
+        self.settle_from_observation(&game.id).await;
         Ok(session.session_id)
     }
 }

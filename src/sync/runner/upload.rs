@@ -89,11 +89,15 @@ impl Runner {
             tracing::warn!("{game_id}: 清理旧版本失败: {error}");
         }
 
-        // 内容值随结果一起交回去：调用方拿它写索引的 `latest_digest`（§6.6 第 1 步）——
-        // 写在索引里的就是**真的上去了的那一版**，不必事后回本机再算一遍。上传失败
-        // （`Err`）时没有值，调用方也就不会去写索引。
-        let digest = send.as_ref().ok().map(|report| report.digest.clone());
-        GameOutcome::from_locations(game_id, name, outcomes).with_digest(digest)
+        // 内容值与版本名随结果一起交回去：调用方拿它写索引的 `latest_digest`
+        // （§6.6 第 1 步）与基线（§6.6 第 3 步）—— 写下去的必须是**真的上去了的那一版**，
+        // 不必事后回本机或云端再问一遍。上传失败（`Err`）时两个都没有，调用方也就
+        // 不会去写索引与基线。
+        let (stamp, digest) = match send.as_ref() {
+            Ok(report) => (Some(stamp), Some(report.digest.clone())),
+            Err(_) => (None, None),
+        };
+        GameOutcome::from_locations(game_id, name, outcomes).with_version(stamp, digest)
     }
 }
 

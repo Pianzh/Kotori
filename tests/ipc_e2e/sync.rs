@@ -187,13 +187,47 @@ fn save_sync_follows_the_game_lifecycle() {
 
     let packages = remote.join("games/life-game");
 
-    // Put something in the cloud, then remove the local copy.
+    // 先由本机传一版（顺手把基线也记下：本机 = 云端 = 第一版）。
     assert_eq!(
         fixture.rpc("sync.now", json!({ "id": "life-game" }))["result"]["ok"],
         true
     );
-    std::fs::remove_dir_all(&saves).unwrap();
-    assert!(!saves.exists());
+
+    // ⚠ **启动前该不该取回，现在是三方比较说了算**（PLATFORMS.md §6.3 / §6.10 第 6 步：
+    // 从前是"无条件把云端最新那一版铺上去"）。"本机存档被删光"那一格（§6.11 第 3 条）
+    // 是**不传不拉**，所以这里要造的是另一个局面：**云端前进了一版**。
+    //
+    // 第二台机器（同一个 exe ⇒ 指纹认出同一条身份 ⇒ 同一批版本）把云端推到第二版。
+    let mut machine_b = Fixture::new("sync-life-b");
+    machine_b.enable_fake_sync(true);
+    machine_b.share_bucket_with(&fixture);
+    machine_b.start();
+    let dir_b = machine_b.dir.join("LifeCopy");
+    let saves_b = dir_b.join("savedata");
+    std::fs::create_dir_all(&saves_b).unwrap();
+    let exe_b = dir_b.join("game.exe");
+    std::fs::write(&exe_b, b"").unwrap();
+    std::fs::write(saves_b.join("save.dat"), b"from-the-cloud").unwrap();
+    machine_b.rpc(
+        "game.create",
+        json!({ "name": "Life Copy", "exe_path": exe_b, "game_dir": dir_b }),
+    );
+    machine_b.rpc(
+        "game.update",
+        json!({ "id": "life-copy", "save_paths": ["savedata"] }),
+    );
+    machine_b.rpc(
+        "sync.set_credentials",
+        json!({ "key_id": "id", "app_key": "key" }),
+    );
+    assert_eq!(
+        machine_b.rpc("sync.now", json!({ "id": "life-copy" }))["result"]["ok"],
+        true
+    );
+    assert_eq!(cloud_packages(&packages).len(), 2, "云端现在有两版");
+
+    // 本机把索引缓存刷到最新：第一次判定读的就是它（判定说"云端偏离了基线 ⇒ 要覆盖本机"）。
+    fixture.rpc("sync.cloud_list", json!({ "refresh": true }));
 
     // Launching pulls it back *before* the game could read it. The fake
     // gamescope exits at once, so the launch itself fails — the point is that
@@ -211,7 +245,7 @@ fn save_sync_follows_the_game_lifecycle() {
     );
     assert_eq!(
         std::fs::read_to_string(saves.join("save.dat")).unwrap(),
-        "from-cloud",
+        "from-the-cloud",
         "the pre-launch pull must run before the game starts"
     );
 
@@ -248,10 +282,10 @@ fn save_sync_follows_the_game_lifecycle() {
     child.wait().unwrap();
 
     // The session ends, and the exit hook uploads what the game wrote as a new
-    // package — the previous one is still there.
+    // package — the two earlier versions are still there.
     assert!(
         wait_until(Duration::from_secs(30), || cloud_packages(&packages).len()
-            >= 2),
+            >= 3),
         "the saves were never uploaded after the game exited ({} calls: {:?})",
         rclone_calls(&fixture).len(),
         rclone_calls(&fixture)
@@ -260,7 +294,7 @@ fn save_sync_follows_the_game_lifecycle() {
     let versions = fixture.rpc("sync.versions", json!({ "id": "life-game" }));
     assert_eq!(
         versions["result"]["versions"].as_array().unwrap().len(),
-        2,
+        3,
         "{versions}"
     );
 

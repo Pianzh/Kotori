@@ -176,6 +176,17 @@ fn an_exit_with_the_switch_off_explains_itself_in_the_status() {
 ///
 /// ⚠ 这里**不先跑一次 `sync.now`**：那也会留下一条 `ok == false`，于是"退出钩子记了失败"
 /// 这条断言会在退出还没发生时提前满足 —— 绿灯是假的。只跑退出那一条路。
+///
+/// # ⚠ 这一条同时钉着闸门 b 在"自动追踪"那一局上怎么算
+///
+/// 闸门 b（`SkipReason::LaunchSyncNotDone`，PLATFORMS.md §6.6）要求"这一局跟云端对上过账"
+/// 才允许退出时自动上传，而这一条用的是**自动追踪**那条路 —— 游戏不是 kotori 启动的
+/// （用户双击图标），没有"启动前"可言。用户 2026-10-05 裁决：**观测会话建立时也跑一次
+/// 判定**（`sync_rpc::launch_sync::settle_from_observation`，只立牌子、绝不取回、也不读
+/// 存档内容）—— 否则"双击图标玩完没传"那个 bug（用户 2026-09-28 报的）就回来了。
+///
+/// 于是这条测试的断言一个字都没改：牌子立得起来 ⇒ 退出钩子走得到引擎 ⇒ copyto 失败 ⇒
+/// `last.ok == false`，而闸门是**开着**的（`auto_upload_blocked == null`）。
 #[test]
 fn an_engine_failure_after_the_exit_is_recorded_as_a_failure() {
     let mut fixture = Fixture::new("exit-fail");
