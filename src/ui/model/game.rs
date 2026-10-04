@@ -180,15 +180,10 @@ impl Draft {
             auto_watch_original: game.auto_watch,
             process_name: game.process_name.clone(),
             process_name_original: game.process_name.clone(),
-            algo: if ScaleAlgorithm::ALL.contains(&game.algo.as_str()) {
-                game.algo.clone()
-            } else {
-                ScaleAlgorithm::Fsr {
-                    sharpness: game.sharpness,
-                }
-                .label()
-                .to_string()
-            },
+            // 不认识的算法名**原样留着**。从前这里落成 FSR 的 label,而草稿与原件一比
+            // 就"不同" ⇒ 一进游戏页就触发自动保存,把用户手写的算法名真的改成 FSR。
+            // 下拉框认不出它只会显示得怪一点,不会改坏任何东西。
+            algo: game.algo.clone(),
             sharpness: game.sharpness,
             internal_w: game.internal.0.map(|v| v.to_string()).unwrap_or_default(),
             internal_h: game.internal.1.map(|v| v.to_string()).unwrap_or_default(),

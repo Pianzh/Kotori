@@ -290,9 +290,19 @@ impl SyncForm {
     }
 
     /// The patch sent to `sync.set_settings`.
-    pub(in crate::ui) fn patch(&self) -> Value {
-        let keep = self.keep_versions.trim().parse::<u32>().unwrap_or(0);
-        serde_json::json!({
+    ///
+    /// `Err` 是给用户看的一句话:非法输入绝不能被 `unwrap_or(0)` 悄悄变成"永不删版本" ——
+    /// 那与"我想限制云端留几份"正好相反,而界面还会报"已保存"。
+    pub(in crate::ui) fn patch(&self) -> Result<Value, String> {
+        // 空 = 不填(用 daemon 的默认);非空必须是整数 —— 半截数字是用户能改的错误,不是
+        // 静默退回默认(与 `parse/scale.rs` 同一条规矩)。
+        let keep = match self.keep_versions.trim() {
+            "" => 0,
+            raw => raw
+                .parse::<u32>()
+                .map_err(|_| format!("保留份数必须是整数（当前 {raw}）"))?,
+        };
+        Ok(serde_json::json!({
             "enabled": self.enabled,
             "engine": if self.engine.trim().is_empty() { "rclone" } else { self.engine.trim() },
             "endpoint": self.endpoint.trim(),
@@ -301,7 +311,7 @@ impl SyncForm {
             "keep_versions": keep,
             "rclone_binary": self.rclone_binary.trim(),
             "kopia_binary": self.kopia_binary.trim(),
-        })
+        }))
     }
 }
 
@@ -331,7 +341,7 @@ mod tests {
         // The patch mirrors the form, trimmed.
         form.bucket = "  spaced  ".into();
         form.rclone_binary = "  D:\\tools\\rclone  ".into();
-        let patch = form.patch();
+        let patch = form.patch().unwrap();
         assert_eq!(patch["bucket"], "spaced");
         assert_eq!(patch["enabled"], true);
         // 两个"程序位置"也是 `[sync]` 里的设置项，随这一笔一起提交，同样 trim。
@@ -341,6 +351,21 @@ mod tests {
             patch.get("key_id").is_none() && patch.get("force").is_none(),
             "settings patches must carry no secrets: {patch}"
         );
+    }
+
+    /// 填 `abc` 从前会被 `unwrap_or(0)` 变成 0,而 0 的语义是**永不删版本** —— 与"我要
+    /// 限制保留份数"正好相反,界面还报"已保存"。留空仍然等于默认。
+    #[test]
+    fn a_keep_versions_that_is_not_a_number_is_refused() {
+        let mut form = SyncForm::default();
+        form.apply(&sync_status_fixture(), &sync_payload()["settings"]);
+
+        form.keep_versions = "abc".into();
+        let error = form.patch().unwrap_err();
+        assert!(error.contains("保留份数"), "{error}");
+
+        form.keep_versions = "  ".into();
+        assert_eq!(form.patch().unwrap()["keep_versions"], 0);
     }
 
     /// 界面发出去的键，必须与 `[sync]` 里真实存在的键**一模一样**。
@@ -356,7 +381,14 @@ mod tests {
         let mut form = SyncForm::default();
         form.apply(&sync_status_fixture(), &sync_payload()["settings"]);
 
-        let mut patched: Vec<String> = form.patch().as_object().unwrap().keys().cloned().collect();
+        let mut patched: Vec<String> = form
+            .patch()
+            .unwrap()
+            .as_object()
+            .unwrap()
+            .keys()
+            .cloned()
+            .collect();
         let config = serde_json::to_value(crate::config::SyncConfig::default()).unwrap();
         let mut expected: Vec<String> = config.as_object().unwrap().keys().cloned().collect();
         patched.sort();

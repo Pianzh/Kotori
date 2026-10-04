@@ -14,10 +14,18 @@ pub(in crate::ui) fn profile_from_draft(draft: &Draft) -> Result<ScaleProfile, S
     // 不是"静默退回自动" —— 那等于把他刚填的东西悄悄丢掉。
     let scale_ratio = match draft.scale_ratio.trim() {
         "" => None,
-        raw => Some(
-            raw.parse::<f32>()
-                .map_err(|_| format!("缩放比例必须是数字（当前 {raw}）"))?,
-        ),
+        raw => {
+            let ratio = raw
+                .parse::<f32>()
+                .map_err(|_| format!("缩放比例必须是数字（当前 {raw}）"))?;
+            // `"NaN".parse::<f32>()` 是**成功**的,而 `serde_json` 会把 NaN 序列化成
+            // `null` ⇒ 用户填的比例被静默丢掉,输入框里却还留着 `NaN`,回包还说"已自动保存"。
+            // 0 与负数同罪:分辨率那一层要拿它做除法。
+            if !ratio.is_finite() || ratio <= 0.0 {
+                return Err(format!("缩放比例必须是正数（当前 {raw}）"));
+            }
+            Some(ratio)
+        }
     };
 
     Ok(ScaleProfile {
@@ -153,5 +161,18 @@ mod tests {
         half_typed.scale_ratio = "1.5x".into();
         let err = profile_from_draft(&half_typed).unwrap_err();
         assert!(err.contains("缩放比例"), "{err}");
+    }
+
+    /// `"NaN".parse::<f32>()` 会成功,而 JSON 里 NaN 变成 `null` —— 用户填的比例就这样
+    /// 被静默丢掉,界面却回一句"已自动保存"。inf 与 0/负数同理(分辨率那层拿它做除法)。
+    #[test]
+    fn a_ratio_that_is_not_a_positive_number_is_refused() {
+        let game = ui_game();
+        for raw in ["NaN", "inf", "-1", "0"] {
+            let mut draft = Draft::from_game(&game);
+            draft.scale_ratio = raw.into();
+            let err = profile_from_draft(&draft).unwrap_err();
+            assert!(err.contains("缩放比例"), "{raw} 应该被拒: {err}");
+        }
     }
 }

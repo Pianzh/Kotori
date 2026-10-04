@@ -75,10 +75,12 @@ pub(super) async fn create_game(
     }
 
     let value = crate::rpc::call(socket, "game.create", Some(crate::rpc::params(params))).await?;
+    // 协议漂移时宁可在这里报错,也不能让界面里冒出一个 id 为 `?` 的游戏 —— 那个 id 会被
+    // 写进配置,之后所有按 id 的操作(game.update / sync / remove)都找不到它。
     let id = value
         .get("id")
         .and_then(|v| v.as_str())
-        .unwrap_or("?")
+        .ok_or_else(|| "守护进程没有回传新游戏的 id".to_string())?
         .to_string();
     let warning = value
         .get("warning")
@@ -211,7 +213,7 @@ pub(super) async fn set_config_source(socket: &Path, portable: bool) -> Result<S
     let path = value
         .get("config_path")
         .and_then(|v| v.as_str())
-        .unwrap_or("?");
+        .ok_or_else(|| "守护进程没有回传配置路径".to_string())?;
     if value.get("changed").and_then(|v| v.as_bool()) != Some(true) {
         return Ok(format!("配置本来就在 {path}"));
     }

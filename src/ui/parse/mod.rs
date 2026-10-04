@@ -56,6 +56,8 @@ pub(in crate::ui) fn string_list(value: Option<&Value>) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// 读一个 u32。装不下的值当"没有"处理,绝不回绕 —— `4294967297 as u32 == 1`,静默截断
+/// 会把用户填的分辨率变成 1。
 pub(in crate::ui) fn u32_field(parent: Option<&Value>, key: &str) -> Option<u32> {
-    parent?.get(key)?.as_u64().map(|v| v as u32)
+    u32::try_from(parent?.get(key)?.as_u64()?).ok()
 }

@@ -157,12 +157,22 @@ impl App {
             }
             Message::SyncSaveSettings => {
                 let form = self.sync_form.clone();
+                // 非法输入就地拦下:以前 `patch()` 用 `unwrap_or(0)` 把 "abc" 变成 0,而 0
+                // 的语义是**永不删版本** —— 与用户想限制保留份数的意图正好相反,界面却报
+                // "已保存"。
+                let patch = match form.patch() {
+                    Ok(patch) => patch,
+                    Err(error) => {
+                        self.sync_form.msg = Some(error);
+                        return Task::none();
+                    }
+                };
                 self.sync_form.busy = true;
                 self.sync_form.msg = None;
                 let socket = self.daemon_socket.clone();
                 self.activity(
                     "保存同步设置",
-                    async move { save_sync_settings(&socket, form.patch()).await },
+                    async move { save_sync_settings(&socket, patch).await },
                     Message::SyncSettingsSaved,
                 )
             }

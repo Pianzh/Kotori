@@ -67,10 +67,18 @@ pub(in crate::ui) fn parse_sync_status(value: &Value) -> Result<SyncStatus, Stri
                         }
                         let action = last.get("action").and_then(|v| v.as_str()).unwrap_or("");
                         let detail = last.get("detail").and_then(|v| v.as_str()).unwrap_or("");
+                        // `at` 是 UTC 的 RFC3339。从前用 `chars().take(16)` 直接切字符串:
+                        // 秒被切掉,而且把 UTC 原样显示出去 —— 国内用户看到的时刻永远早
+                        // 8 小时。解析成时刻再转本地时区,顺带把秒留住。
                         let when = last
                             .get("at")
                             .and_then(|v| v.as_str())
-                            .map(|at| at.chars().take(16).collect::<String>())
+                            .and_then(|at| chrono::DateTime::parse_from_rfc3339(at).ok())
+                            .map(|at| {
+                                at.with_timezone(&chrono::Local)
+                                    .format("%Y-%m-%d %H:%M:%S")
+                                    .to_string()
+                            })
                             .unwrap_or_default();
                         let mark = if last.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
                             "√"
@@ -216,6 +224,36 @@ pub(in crate::ui) fn parse_sync_ask_cloud(value: &Value) -> Option<SyncAskCloud>
 mod tests {
     use super::*;
     use crate::ui::test_support::sync_status_fixture;
+
+    /// 时间戳从前是 `chars().take(16)` 直接切的:秒被切掉,而且 UTC 原样显示 —— 国内用户
+    /// 看到的时刻永远早 8 小时。现在解析成时刻再转本地时区。
+    #[test]
+    fn the_last_sync_time_is_local_and_keeps_its_seconds() {
+        let status = parse_sync_status(&serde_json::json!({
+            "keyring": { "backend": "", "ephemeral": false, "store": {}, "min_master_password": 8 },
+            "settings": {},
+            "games": [{
+                "game_id": "demo",
+                "name": "Demo",
+                "last": {
+                    "action": "uploaded",
+                    "detail": "",
+                    "ok": true,
+                    "at": "2026-10-04T12:30:45Z",
+                },
+            }],
+        }))
+        .unwrap();
+
+        let label = status.games[0].last_label();
+        assert!(
+            !label.contains('T') && !label.contains('Z'),
+            "还是 UTC 原样切出来的串:{label}"
+        );
+        assert!(label.contains(":45"), "秒被切掉了:{label}");
+        // 本地时区换算后日期可能落到前一天或后一天,但月份不会跑掉。
+        assert!(label.contains("2026-10-0"), "{label}");
+    }
 
     #[test]
     fn parses_the_sync_status() {

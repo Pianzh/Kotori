@@ -318,7 +318,13 @@ impl App {
                 self.daemon_connected = Some(true);
                 // 会话轮询有回应就说明它活着 —— 哪怕是别处重新起的。这时"已停止"
                 // 那块牌子必须摘掉,不然侧栏说"已连接"、设置页说过"已停止"。
-                self.daemon_paused = false;
+                //
+                // ⚠ 但有一次启停请求在途时**不能**摘:那段窗口里的状态回包是"停止请求
+                // 发出之前"就发出去的,拿它撤销用户刚点的「停止服务」,界面会从"已停止"
+                // 跳回"未运行",用户再点一次刷新就把守护进程又拉回来了(BUG-18)。
+                if !self.service_busy {
+                    self.daemon_paused = false;
+                }
                 Task::none()
             }
             Message::StatusLoaded(Err(e)) => {

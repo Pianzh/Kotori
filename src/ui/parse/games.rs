@@ -127,7 +127,7 @@ pub(in crate::ui) fn parse_games(value: &Value) -> Result<Vec<UiGame>, String> {
                     .unwrap_or(false),
                 framerate: scale
                     .and_then(|s| s.get("framerate_limit"))
-                    .and_then(|v| v.as_u64().map(|f| f as u32)),
+                    .and_then(|v| u32::try_from(v.as_u64()?).ok()),
                 // 手写的 gamescope 参数:空数组＝照常由 kotori 拼(见
                 // `ScaleProfile::gamescope_args`)。
                 gamescope_args: string_list(scale.and_then(|s| s.get("gamescope_args"))),

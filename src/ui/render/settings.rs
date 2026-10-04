@@ -64,6 +64,10 @@ pub(super) fn push_settings(ui: &mut Ui) {
     push_str(w.get_env_distro(), &environment.distro_line(), |v| {
         w.set_env_distro(v)
     });
+    // ⚠ 这一行以前漏了:`.slint` 那边声明了 `env-ok: true`,摘要行的颜色靠它算,而 Rust
+    // 侧从来没人写过 ⇒ 缺依赖时逐行是红的、顶上那句却永远绿。默认值恰好是"没问题",
+    // 所以这个洞不会自己暴露。
+    push_bool(w.get_env_ok(), environment.ok, |v| w.set_env_ok(v));
     push_checks(w, &environment.checks);
 }
 

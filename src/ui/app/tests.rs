@@ -159,12 +159,29 @@ fn a_service_that_is_alive_again_clears_the_stopped_flag() {
             .contains("失败")
     );
 
-    // 从命令行起的守护进程:会话轮询有回应 ⇒ 摘牌。
+    // 从命令行起的守护进程:停止确实生效了,之后轮询又有回应 ⇒ 摘牌(别处又起了一个)。
     let _ = app.update(Message::ServiceStop);
     assert!(app.daemon_paused);
+    let _ = app.update(Message::ServiceStopped(Ok("后台服务已停止".into())));
+    assert!(app.daemon_paused, "停掉了牌子就该立着");
+    assert!(!app.service_busy);
     let _ = app.update(Message::StatusLoaded(Ok(Default::default())));
-    assert!(!app.daemon_paused);
+    assert!(!app.daemon_paused, "别处又起了守护进程,牌子要摘");
     assert_eq!(app.daemon_connected, Some(true));
+}
+
+/// ⚠ 反过来:启停请求还在路上时,那一次会话轮询的回包其实是"停止请求发出之前"就发出去
+/// 的 —— 拿它摘牌,界面会从"已停止"跳回"未运行",用户再点一次刷新就把守护进程又拉回来。
+#[test]
+fn a_status_reply_that_was_already_in_flight_does_not_undo_the_stop() {
+    let (mut app, _task) = App::new();
+    let _ = app.update(Message::ServiceStop);
+    assert!(app.daemon_paused);
+    assert!(app.service_busy, "停止请求还在路上");
+
+    let _ = app.update(Message::StatusLoaded(Ok(Default::default())));
+
+    assert!(app.daemon_paused, "在途回包不许撤销用户刚点的「停止服务」");
 }
 
 /// 自动保存:连改几笔只会存最后一笔,而且过期回包必须让**新的**那份再存一次 ——
