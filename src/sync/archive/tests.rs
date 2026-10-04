@@ -257,10 +257,25 @@ fn a_package_that_tries_to_escape_its_directory_is_refused() {
     assert!(!safe_rel("a\\b"));
     assert!(!safe_rel("a//b"));
 
+    // 存档位置的 key 只许是单段的 `[a-z0-9_-]`(那正是 `save_key` 的产出)。不校验也不会
+    // 出事(key 匹配不上任何本机位置),但那份安全是跨模块的隐式约定,得有测试守着。
+    assert!(safe_key("rel-savedata"));
+    assert!(safe_key("win-appdata_game_2024"));
+    assert!(!safe_key(""));
+    assert!(!safe_key("../evil"));
+    assert!(!safe_key("a/b"));
+    assert!(!safe_key("a\\b"));
+    assert!(!safe_key("Rel-Savedata"), "大写不是我们产出的形状");
+
     let dir = temp("escape");
     let saves = dir.join("saves");
     std::fs::create_dir_all(&saves).unwrap();
     let cloud = manifest(vec![entry("rel-savedata", "../escaped.sav", 1, 1)]);
+    let error = plan(&cloud, &[target("rel-savedata", &saves)], Merge::Replace).unwrap_err();
+    assert!(error.contains("不安全"), "{error}");
+
+    // 同一个包、把穿越挪到 **key** 上:也必须当场拒绝,而不是"匹配不上就跳过"。
+    let cloud = manifest(vec![entry("../../evil", "save.sav", 1, 1)]);
     let error = plan(&cloud, &[target("rel-savedata", &saves)], Merge::Replace).unwrap_err();
     assert!(error.contains("不安全"), "{error}");
 

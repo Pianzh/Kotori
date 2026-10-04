@@ -79,6 +79,13 @@ pub fn is_snapshot(name: &str) -> bool {
     if !digits_ok {
         return false;
     }
+    // ⚠ "全是数字 + 第 8 位是 `T`" 还不够:`99999999T999999999Z` 也照样通过。而 `latest`
+    // 与 `prune_plan` 都是按**字典序**取"最新"的 —— 伪造出来的名字比任何真实时间戳都大,
+    // 于是它成了那个"被拉下来覆盖本机"的最新版,真包反而被当成旧版删掉。所以真解析一次。
+    let stamp = &name[..stamp_len - 1];
+    if chrono::NaiveDateTime::parse_from_str(&stamp[..15], "%Y%m%dT%H%M%S").is_err() {
+        return false;
+    }
     let rest = &name[stamp_len..];
     rest.is_empty()
         || (rest.starts_with('-')
@@ -149,6 +156,25 @@ mod tests {
                 "20260902T000000Z".to_string()
             ]
         );
+    }
+
+    /// 光"全是数字 + 第 8 位是 `T`"抓不住伪造的名字,而按字典序取"最新"时它们比任何
+    /// 真实时间戳都大 —— 所以日期必须真解析一次(否则一个 `99999999T…` 就能当上"最新版",
+    /// 被拉下来覆盖本机,真包还会被当旧版删掉)。
+    #[test]
+    fn a_stamp_with_an_impossible_date_is_not_a_snapshot() {
+        assert!(is_snapshot("20260911T101500Z"), "秒精度要认");
+        assert!(is_snapshot("20260911T101500123Z"), "毫秒精度要认");
+        assert!(is_snapshot("20260911T101500Z-1a2b3c4d"), "带随机后缀要认");
+
+        for bogus in [
+            "99999999T999999999Z",
+            "20261301T000000Z", // 13 月
+            "20260932T000000Z", // 32 日
+            "20260911T256199Z", // 25 时 61 分
+        ] {
+            assert!(!is_snapshot(bogus), "{bogus} 不该被当成一版存档");
+        }
     }
 
     #[test]

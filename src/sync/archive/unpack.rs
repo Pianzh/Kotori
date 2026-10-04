@@ -10,7 +10,8 @@ use std::io::Read;
 use std::path::Path;
 
 use super::{
-    Entry, FORMAT, MANIFEST, Manifest, Merge, mtime_ms, safe_rel, set_mtime, to_local_path,
+    Entry, FORMAT, MANIFEST, Manifest, Merge, mtime_ms, safe_key, safe_rel, set_mtime,
+    to_local_path,
 };
 use crate::sync::SaveTarget;
 
@@ -198,7 +199,7 @@ pub fn plan(
     let mut kept = Vec::new();
 
     for entry in &manifest.entries {
-        if !safe_rel(&entry.path) || entry.key.is_empty() {
+        if !safe_rel(&entry.path) || !safe_key(&entry.key) {
             return Err(format!("包内路径不安全，拒绝使用: {}", entry.name()));
         }
         // 包里有一个这台机器没配置的位置：跳过它。不报错——那是另一台机器

@@ -163,3 +163,19 @@ pub(super) fn safe_rel(path: &str) -> bool {
 pub(super) fn to_local_path(path: &str) -> PathBuf {
     path.split('/').collect()
 }
+
+/// 包内"存档位置的 key"必须是**单段**、而且只用我们自己产出的字符
+/// (`sync::save_key` 只产出 `[a-z0-9_-]`)。
+///
+/// 不校验其实也不会出事:现在 `plan` 是拿 key 去匹配本机的存档位置,恶意 key 匹配不上就
+/// 被 `continue` 掉了。但那份安全是**跨模块的隐式约定** —— 任何一次 `save_key` 放宽、
+/// 或者任何一条绕过 `plan`、直接用 `entry.name()`(它把 key 与 path 拼成源路径)的新路径,
+/// 都会立刻变成任意文件读写,再经下一次上传把内容泄露到桶里。
+pub(super) fn safe_key(key: &str) -> bool {
+    !key.is_empty()
+        && !key.contains(['/', '\\'])
+        && !key.contains('\0')
+        && key
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+}

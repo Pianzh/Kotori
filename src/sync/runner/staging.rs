@@ -96,8 +96,14 @@ pub(crate) fn sweep_stale(work_dir: &Path) -> usize {
     };
     let mut removed = 0;
     for entry in entries.flatten() {
-        // 只碰我们自己造的那种名字：这个目录里将来可能还有别的东西。
-        if !entry.file_name().to_string_lossy().starts_with("stage-") {
+        // 只碰我们自己造的那种名字:`stage-` 加 32 位十六进制(`Uuid::simple()`,见
+        // [`Staging::new`])。只看前缀是不够的 —— 这个目录里将来可能还有别的东西,
+        // 而这里删的是**整棵子树**。
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(rest) = name.strip_prefix("stage-") else {
+            continue;
+        };
+        if rest.len() != 32 || !rest.bytes().all(|byte| byte.is_ascii_hexdigit()) {
             continue;
         }
         if std::fs::remove_dir_all(entry.path()).is_ok() {
@@ -133,18 +139,24 @@ mod tests {
         }
     }
 
-    /// 上次崩溃留下的 `stage-*` 要被清掉，而**不是我们造的东西一个都不许碰**。
+    /// 上次崩溃留下的 `stage-<32 位 hex>` 要被清掉，而**不是我们造的东西一个都不许碰** ——
+    /// 连形状不对的 `stage-xxx` 也算"不是我们的"：这里删的是整棵子树，光看前缀太宽。
     #[test]
     fn stale_stage_directories_are_swept_and_others_are_left_alone() {
         let dir = TempDir::new("sweep");
-        std::fs::create_dir_all(dir.0.join("stage-11111111")).unwrap();
-        std::fs::create_dir_all(dir.0.join("stage-22222222")).unwrap();
+        let ours = format!("stage-{}", uuid::Uuid::new_v4().simple());
+        let also_ours = "stage-0123456789abcdef0123456789abcdef";
+        std::fs::create_dir_all(dir.0.join(&ours)).unwrap();
+        std::fs::create_dir_all(dir.0.join(also_ours)).unwrap();
+        // 形状不对的：不是我们造的。
+        std::fs::create_dir_all(dir.0.join("stage-tmp")).unwrap();
         // 将来这个目录里可能放别的东西（比如某个引擎自己的缓存）：那不是我们的。
         std::fs::create_dir_all(dir.0.join("kopia-cache")).unwrap();
 
         assert_eq!(sweep_stale(&dir.0), 2);
-        assert!(!dir.0.join("stage-11111111").exists());
-        assert!(!dir.0.join("stage-22222222").exists());
+        assert!(!dir.0.join(&ours).exists());
+        assert!(!dir.0.join(also_ours).exists());
+        assert!(dir.0.join("stage-tmp").exists(), "形状不对的不许碰");
         assert!(dir.0.join("kopia-cache").exists(), "不是我们造的不许碰");
     }
 
