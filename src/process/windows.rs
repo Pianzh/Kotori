@@ -74,8 +74,11 @@ pub fn pickable() -> Vec<Pickable> {
     unsafe { EnumWindows(Some(collect), &mut windows as *mut _ as LPARAM) };
 
     // 一个进程可能开着好几个窗口(主窗口 + 无属主的浮窗):留标题最长的那一个。
+    // ⚠ 读不到进程表时只按 pid 显示(没有名字):这一页只是"让用户挑一个在跑的游戏",
+    // 没有数据可丢,而 `process_table()` 现在返回 `Result`(见 `mod.rs` 的 `is_running`)。
     let own = std::process::id();
     let names: std::collections::HashMap<i32, String> = process_table()
+        .unwrap_or_default()
         .into_iter()
         .map(|entry| (entry.pid, entry.name))
         .collect();
@@ -321,7 +324,7 @@ mod tests {
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         loop {
-            let table = process_table();
+            let table = process_table().expect("测试里必须读得到进程表,否则这条断言没有意义");
             let left: Vec<i32> = std::iter::once(root)
                 .chain(descendants_of_root.iter().copied())
                 .filter(|pid| table.iter().any(|entry| entry.pid == *pid))
