@@ -34,6 +34,44 @@ fn the_default_password_is_the_one_every_machine_shares() {
     assert_eq!(DEFAULT_PASSWORD, "kotori");
 }
 
+/// 报错里那句"kopia ??? 失败"必须是**命令名**，不能是参数（B28）。
+///
+/// 从前它取 `argv[1]`，而恢复那条路的第二项是快照 id ⇒ 用户看到的是
+/// 「kopia 0a1b2c3d… 失败」。这条测试把"第二个词是不是子命令"钉死。
+#[test]
+fn the_reported_command_name_is_a_name_not_an_argument() {
+    use super::super::kopia_args as args;
+
+    let settings = SyncConfig::default();
+    let label = |argv: &[String]| super::command_label(argv);
+
+    assert_eq!(
+        label(&args::snapshot_list_args("demo")),
+        "snapshot list",
+        "两个词都是命令，就该两个都写"
+    );
+    assert_eq!(
+        label(&args::connect_args(&settings, "id", "key")),
+        "repository connect"
+    );
+    assert_eq!(
+        label(&args::create_args(&settings, "id", "key")),
+        "repository create"
+    );
+
+    // ⚠ 命根子：恢复那条路的第二项是快照 id，**绝不能**出现在给用户看的话里。
+    let restore = args::restore_args("0a1b2c3d4e5f60718293a4b5c6d7e8f9", "/tmp/kotori-restore");
+    let label = label(&restore);
+    assert_eq!(label, "restore", "认不出子命令就只写顶层命令");
+    assert!(
+        !label.contains("0a1b2c3d"),
+        "快照 id 不是命令名，报错里不该出现它"
+    );
+
+    // 空 argv 不能 panic（理论上不会发生，但报错路径不该再炸一次）。
+    assert_eq!(super::command_label(&[]), "命令");
+}
+
 /// 连接身份里必须带着 endpoint（BUG-21）：换过地址之后，旧的 `repository.config`
 /// 指向的是**另一个目标**，直接复用会让用户看到"地址明明改了、同步还是老样子"。
 #[test]

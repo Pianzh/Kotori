@@ -233,7 +233,11 @@ impl Kopia {
         let output = tokio::time::timeout(timeout, child.wait_with_output())
             .await
             .map_err(|_| {
-                SyncError::Command(format!("kopia {} 超过 {:?} 未完成", argv[1], timeout))
+                SyncError::Command(format!(
+                    "kopia {} 超过 {:?} 未完成",
+                    command_label(argv),
+                    timeout
+                ))
             })?
             .map_err(|e| SyncError::Command(format!("无法执行 {}: {e}", self.binary.display())))?;
 
@@ -248,7 +252,7 @@ impl Kopia {
             };
             return Err(SyncError::Command(format!(
                 "kopia {} 失败: {detail}",
-                argv[1]
+                command_label(argv)
             )));
         }
 
@@ -329,8 +333,15 @@ impl Kopia {
 
     /// 连上仓库并列出快照——凭据、桶、仓库密码、读权限一次验完。
     pub(super) async fn check(&self) -> Result<String, SyncError> {
-        // 强制作废旧的连接记录：用户可能刚改过桶或 prefix。
-        let _ = std::fs::remove_file(self.target_marker());
+        // ⚠ 这里从前有一行 `remove_file(target_marker())`，注释说是"用户可能刚改过桶或
+        //   prefix"—— 但 [`Self::connected_to_current_target`] 比的正是**当前配置算出来的
+        //   target 字符串**，配置真改了它自然为假、`ensure_connected` 自然会去重连。
+        //   那行唯一的实际效果是：每点一次「测试连接」都把连接记录作废一次，于是下一次
+        //   真同步必然重新 `repository connect`，而那条命令**必须把 B2 的 app key 放进
+        //   argv**（kopia 0.22 的 b2 provider 只认命令行参数，见 `kopia_args`）。argv 是
+        //   同机任何进程都能读的（`/proc/<pid>/cmdline`、`ps auxww`、Windows 任务管理器的
+        //   "命令行"列），所以那行等于**每测一次连接就把密钥在进程表里亮一次**。
+        //   删掉它，验证力一点不损失：下面照样会真的跑一次 `snapshot list` 去连桶。
         self.ensure_connected().await?;
         let listed = self
             .run(&args::snapshot_list_args("kotori-check"), COMMAND_TIMEOUT)
@@ -458,6 +469,27 @@ fn local_repository_from_env() -> Option<PathBuf> {
     std::env::var_os("KOTORI_KOPIA_REPOSITORY")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())
+}
+
+/// 报错与超时消息里给用户看的「这是 kopia 的哪一步」。
+///
+/// ⚠ 从前这两条消息拼的是 `argv[1]`，而它不是命令名：`args::restore_args` 的第二项是
+/// **快照 id**（`["restore", id, into]`），于是恢复失败时用户看到的是
+/// 「kopia 0a1b2c3d4e5f… 失败」—— 一串十六进制，既不知道是哪一步，也不知道该查什么。
+/// 这里只认**固定前缀**那几对（`snapshot list` / `repository connect` …），
+/// 认不出第二个词就退回 `argv[0]`。
+fn command_label(argv: &[String]) -> String {
+    // kopia 的子命令词：只有第二个词在这张表里，才把两个词都写上去。
+    const SUBCOMMANDS: [&str; 8] = [
+        "list", "restore", "delete", "connect", "create", "status", "verify", "index",
+    ];
+    let first = argv.first().map(String::as_str).unwrap_or("命令");
+    let second = argv.get(1).map(String::as_str).unwrap_or_default();
+    if SUBCOMMANDS.contains(&second) {
+        format!("{first} {second}")
+    } else {
+        first.to_string()
+    }
 }
 
 /// 凭据换过之后，把这个数据目录下的 kopia 连接记录作废。

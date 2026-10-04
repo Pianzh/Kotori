@@ -396,9 +396,11 @@ impl App {
             Message::SyncMasterSaved(result) => {
                 self.sync_form.busy = false;
                 match result {
-                    Ok(path) => {
+                    Ok(sentence) => {
                         self.sync_form.master_password.clear();
-                        self.sync_form.msg = Some(format!("凭据已加密保存到 {path}"));
+                        // `set_master_password` 返回的已经是整句话（可能带明文文件没删掉的
+                        // 警告，见 B2），别在这里再包一层。
+                        self.sync_form.msg = Some(sentence);
                     }
                     Err(e) => self.sync_form.msg = Some(e),
                 }

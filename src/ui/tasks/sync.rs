@@ -142,6 +142,10 @@ pub(in crate::ui) async fn clear_master_file(socket: &Path) -> Result<(), String
 
 /// Seal the current credentials into a master-password file, and say where it
 /// landed.
+///
+/// ⚠ 返回的是**一整句给用户看的话**：daemon 在明文文件没能删掉时会带回
+/// `plain_warning`（B2），那句话必须出现在界面上 —— "成功了、但明文还留在盘上"是
+/// 用户必须知道的事，把它吞掉等于骗他。
 pub(in crate::ui) async fn set_master_password(
     socket: &Path,
     password: &str,
@@ -157,7 +161,11 @@ pub(in crate::ui) async fn set_master_password(
         ])),
     )
     .await?;
-    Ok(str_field(&value, "path"))
+    let mut sentence = format!("凭据已加密保存到 {}", str_field(&value, "path"));
+    if let Some(warning) = value.get("plain_warning").and_then(Value::as_str) {
+        sentence.push_str(&format!("；⚠ {warning}"));
+    }
+    Ok(sentence)
 }
 
 pub(in crate::ui) async fn sync_test(socket: &Path) -> Result<String, String> {

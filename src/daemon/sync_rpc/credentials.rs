@@ -6,7 +6,7 @@
 use serde_json::{Value, json};
 
 use super::{Daemon, Password};
-use crate::secrets::{EncryptedFile, Keyring, SecretKey};
+use crate::secrets::{EncryptedFile, Keyring, SecretKey, plain::PlainFile};
 
 impl Daemon {
     /// Unlock the master-password file with the password the user just typed.
@@ -29,6 +29,12 @@ impl Daemon {
     /// This is the escape hatch for machines with no OS keyring: without it,
     /// every restart would ask for the B2 keys again, which is exactly what
     /// makes unattended sync impossible on those systems.
+    ///
+    /// ⚠ 两条"绝不"（B1 / B2）：
+    ///   * **读不出来的凭据绝不当成"没存过"** —— 锁着的时候重设主密码，从前会把
+    ///     `Err(Locked)` 和 `Ok(None)` 一起 `filter_map` 掉，于是 `create`（覆盖写）
+    ///     把用户的凭据**换成一个空文件**，界面还报"已加密保存"；
+    ///   * **明文文件搬完之后必须删掉**，而且要**先回读确认**每一条都进了加密文件。
     pub(in crate::daemon) fn rpc_sync_set_master_password(
         &self,
         password: Password,
@@ -43,19 +49,30 @@ impl Daemon {
         }
 
         let current = self.sync.keyring();
-        let entries: Vec<(SecretKey, String)> = SecretKey::ALL
-            .into_iter()
-            .filter_map(|key| match current.get(key) {
-                Ok(Some(value)) => Some((key, value)),
-                _ => None,
-            })
-            .collect();
+        let mut entries: Vec<(SecretKey, String)> = Vec::new();
+        for key in SecretKey::ALL {
+            match current.get(key) {
+                Ok(Some(value)) => entries.push((key, value)),
+                // 没存过是正常状态（比如只设了 kopia 密码）。
+                Ok(None) => {}
+                // 读不出来 = **不知道里面有什么**，绝不能当成"没有"。
+                Err(error) => {
+                    return Err(format!(
+                        "有凭据现在读不出来（{error}）—— 先用当前主密码解锁再重设；\
+                         这一次一个字节都没写"
+                    ));
+                }
+            }
+        }
 
         existing
             .create(&password.password, &entries)
             .map_err(|e| e.to_string())?;
         // Adopt the very handle we just sealed: a fresh one would be locked.
         self.sync.adopt(Keyring::from_encrypted(existing));
+
+        // B2：明文文件里的东西已经进了加密文件 ⇒ 明文不该继续留在盘上。
+        let plain_warning = self.drop_migrated_plaintext().err();
 
         tracing::info!(
             "凭据已存入主密码文件 {}（{} 条）",
@@ -66,7 +83,43 @@ impl Daemon {
             "stored": true,
             "path": path.display().to_string(),
             "count": entries.len(),
+            "plain_warning": plain_warning,
         }))
+    }
+
+    /// 明文凭据文件在成功搬进主密码文件之后必须消失（B2）。
+    ///
+    /// 三道关，缺一不可：
+    ///   ① 明文文件本来就不在 ⇒ 什么都不用做；
+    ///   ② **明文里每一条**都必须能在刚写好的加密文件里读回来、值也一样 —— 对不上就
+    ///      **不删**：宁可多留一份明文，也不能把用户唯一的一份凭据删掉；
+    ///   ③ 删失败 ⇒ 返回一句警告，由调用方说给用户听（**绝不假装成功**）。
+    fn drop_migrated_plaintext(&self) -> Result<(), String> {
+        let path = self.sync.plain_path();
+        let plain = PlainFile::new(&path);
+        if !plain.exists() {
+            return Ok(());
+        }
+        let inside = plain
+            .load()
+            .map_err(|e| format!("明文凭据文件读不出来（{e}），先留着没删"))?;
+        let keyring = self.sync.keyring();
+        for (key, value) in &inside {
+            match keyring.get(*key) {
+                Ok(Some(back)) if back == *value => {}
+                other => {
+                    return Err(format!(
+                        "明文凭据文件没有删掉：{} 没能确认已经写进加密文件（{other:?}）",
+                        key.account()
+                    ));
+                }
+            }
+        }
+        plain
+            .remove()
+            .map_err(|e| format!("明文凭据文件没有删掉：{e}"))?;
+        tracing::info!("明文凭据已搬进主密码文件，原文件已删除：{}", path.display());
+        Ok(())
     }
 
     /// Delete the master-password file.
