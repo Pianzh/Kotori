@@ -252,3 +252,21 @@ fn descendants_come_from_one_pass_and_keep_their_names() {
         ]
     );
 }
+
+#[test]
+fn a_parent_cycle_does_not_hang_the_walk() {
+    // Windows 的 `th32ParentProcessID` 是**创建时的快照值**:父进程早退 + pid 复用之后,
+    // 表里可以凑出「A 的父是 B、B 的父是 A」。没有 visited,这个 BFS 永不返回 —— 而它
+    // 是同步阻塞的(不 await),卡住的是整个 tokio worker。这条就是那个"永不返回"的哨兵。
+    let table = vec![
+        (1, 2, "a".to_string()),
+        (2, 1, "b".to_string()),
+        (3, 1, "c".to_string()),
+    ];
+
+    let (pids, named) = collect_descendants(1, &table);
+
+    // 1 -> {2, 3};2 的孩子是 1,而 1 已经访问过 ⇒ 到此为止。
+    assert_eq!(pids, vec![2, 3], "{pids:?}");
+    assert_eq!(named.len(), 2, "{named:?}");
+}

@@ -18,7 +18,7 @@
 //! part and trying the truncated form as well. (Windows has neither problem —
 //! the snapshot reports the full exe name — and simply passes it as `comm`.)
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -293,8 +293,16 @@ pub(crate) fn collect_descendants(
     let mut pids = Vec::new();
     let mut named = Vec::new();
     let mut queue = vec![root];
+    // Linux 的父指针图是一片森林(`ppid` 指向真实祖先),本来不需要防环;但 Windows 的
+    // `th32ParentProcessID` 是**创建时的快照值** —— 父进程早退 + pid 复用之后,表里
+    // 可以出现「A 的父是 B、B 的父是 A」。没有 visited 这个 BFS 就永不返回,而它是
+    // **同步阻塞**的(不 await),卡住的是整个 tokio worker:daemon 所有 RPC 一起挂死。
+    let mut visited: HashSet<i32> = HashSet::from([root]);
     while let Some(pid) = queue.pop() {
         for &child in children.get(&pid).into_iter().flatten() {
+            if !visited.insert(child) {
+                continue;
+            }
             pids.push(child);
             if let Some((_, _, name)) = table.iter().find(|(p, _, _)| *p == child) {
                 named.push((child, name.clone()));
