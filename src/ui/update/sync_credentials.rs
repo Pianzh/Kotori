@@ -153,3 +153,52 @@ impl App {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// ⚠ 委派表必须覆盖**每一个**凭据族消息。
+    ///
+    /// 漏一个的后果不是编译错误，而是那条消息掉进 `update_sync` 末尾的
+    /// `unreachable!` —— **运行期 panic**，而且只有用户真的点到那颗按钮时才会炸。
+    /// 所以两半都要钉：`handles` 认得它、而且真派一遍不 panic。
+    #[test]
+    fn every_credential_message_is_delegated_and_handled() {
+        let (mut app, _task) = App::new();
+        let messages = [
+            Message::SyncMasterPasswordChanged("hunter2".into()),
+            Message::SyncUnlock,
+            Message::SyncUnlocked(Ok(())),
+            Message::SyncSetMasterPassword,
+            Message::SyncMasterSaved(Ok(FormMsg::ok("凭据已加密保存到 /tmp/x"))),
+            Message::SyncLockCredentials,
+            Message::SyncCredentialsLocked(Ok(())),
+            Message::SyncMasterDeleteRequested,
+            Message::SyncMasterDeleteCancelled,
+            Message::SyncMasterDeleteConfirmed,
+            Message::SyncMasterDeleted(Ok(())),
+        ];
+        for message in messages {
+            assert!(
+                super::handles(&message),
+                "这条消息没被委派到凭据族，会掉进 unreachable!: {message:?}"
+            );
+            // 真走一遍：不 panic 就说明落到了对的分支上。
+            let _ = app.update(message);
+        }
+    }
+
+    /// 「删除主密码文件」是破坏性动作：没点过那一颗确认按钮时，消息本身**不许**生效
+    /// （`SyncMasterDeleteConfirmed` 在这一步之外到达就是一次误触）。
+    #[test]
+    fn deleting_the_master_file_needs_the_confirmation_flag() {
+        let (mut app, _task) = App::new();
+        assert!(!app.sync_form.confirm_master_delete);
+        let _ = app.update(Message::SyncMasterDeleteConfirmed);
+        assert!(
+            !app.sync_form.busy,
+            "没确认过就不该发请求（更不该把文件删掉）"
+        );
+    }
+}
