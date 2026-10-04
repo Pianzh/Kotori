@@ -119,7 +119,11 @@ fn the_same_content_under_different_location_keys_has_the_same_digest() {
 #[test]
 fn adding_or_removing_a_file_changes_the_digest() {
     let root = temp("add-remove");
-    let saves = root.join("saves");
+    // ⚠ 目录名必须是 `make_machine` 造的那两个之一（`savedata` / `appdata`）。
+    //    写成别的名字，`collect_files` 会把它当成"这个位置在本机不存在"（记进
+    //    `missing`，不报错）—— 于是"加一个文件"其实是在一个空目录里加，
+    //    后面那句"删掉一个本来就有的文件"直接 `unwrap` 炸掉，而前半段看着是过的。
+    let saves = root.join("savedata");
     make_machine(&root);
 
     let one = vec![target("rel-savedata", &saves)];

@@ -232,8 +232,10 @@ fn an_unknown_format_version_is_not_guessed_at() {
 fn an_index_without_a_latest_digest_still_reads_as_unknown() {
     assert_eq!(INDEX_FORMAT, 2, "索引格式到 2 了（多了 latest_digest）");
 
+    // ⚠ `identity.format` 是**没有 `#[serde(default)]`** 的必填字段（它是身份卡自己的
+    //    格式号，缺了就说明这张卡根本读不懂）—— 造老索引的 JSON 时别漏掉它。
     let old = r#"{"format":1,"updated":"2026-09-23T10:00:00Z","games":[
-        {"cloud_key":"one","identity":{"cloud_id":"c1","name":"一","machines":[]},
+        {"cloud_key":"one","identity":{"format":1,"cloud_id":"c1","name":"一","machines":[]},
          "versions":2,"latest":"20260923T100000Z","size":40,"updated":"2026-09-23T10:00:00Z"}]}"#;
     let parsed: CloudIndex = serde_json::from_str(old).unwrap();
     assert_eq!(parsed.games.len(), 1);
