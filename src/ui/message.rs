@@ -150,6 +150,11 @@ pub enum Message {
     /// 那个世代号与 `ClearError` 同一个道理：迟到的收尾**不许**把后来那件事的状态清掉
     /// —— 用户连着点两下时，"上一件跑完了"不能把"下一件正在跑"抹成空闲。
     ActivityFinished(u64, String, Box<Message>),
+    /// 一个后台任务 panic 了（见 `driver::spawn`）。
+    ///
+    /// 进程不会退出，但两条"只能由自身续期"的链会断：会话轮询那一拍，以及自动保存的
+    /// "在途"标记。收到它就得把界面状态复位、把轮询接回去。
+    EffectPanicked,
     /// 「重置」:回到已保存的设置(没有保存按钮之后,这是填错值的唯一退路)。
     ResetProfile,
     DeleteRequested,

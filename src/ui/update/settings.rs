@@ -47,6 +47,22 @@ pub(super) fn is_settings_message(message: &Message) -> bool {
 }
 
 impl App {
+    /// 会话轮询的那一拍:问一次状态,并挂上下一拍。
+    ///
+    /// 单独成函数是有理由的:`Tick` 是"只能由自身续期"的链,后台任务 panic 时那一拍会
+    /// 被整条丢掉 —— [`Message::EffectPanicked`] 负责把同一拍重新接上(见 `driver::spawn`)。
+    pub(super) fn poll_status(&self) -> Task<Message> {
+        let socket = self.daemon_socket.clone();
+        let poll = Task::perform(
+            async move { load_status(&socket).await },
+            Message::StatusLoaded,
+        );
+        let next = Task::perform(async { tokio::time::sleep(STATUS_POLL).await }, |_| {
+            Message::Tick
+        });
+        Task::batch([poll, next])
+    }
+
     /// update_settings 负责的那一批消息。
     ///
     /// 拆出来只是因为 `update` 那个 match 太长：**这里改的仍然是同一个 `App`**，
@@ -300,17 +316,7 @@ impl App {
                 }
                 Task::none()
             }
-            Message::Tick => {
-                let socket = self.daemon_socket.clone();
-                let poll = Task::perform(
-                    async move { load_status(&socket).await },
-                    Message::StatusLoaded,
-                );
-                let next = Task::perform(async { tokio::time::sleep(STATUS_POLL).await }, |_| {
-                    Message::Tick
-                });
-                Task::batch([poll, next])
-            }
+            Message::Tick => self.poll_status(),
             Message::StatusLoaded(Ok(status)) => {
                 self.running = status.sessions;
                 // 配置落点跟着同一次回包刷新 —— 别处切过(CLI、另一台界面)这边也跟上。

@@ -422,6 +422,16 @@ impl App {
                 }
                 Task::none()
             }
+            // 后台任务 panic 之后的复位:见 `driver::spawn` 的注释 —— 不把这两条链接上,
+            // 界面会"活着但什么都不做"(状态不再刷新,设置改了也永远不会保存)。
+            Message::EffectPanicked => {
+                tracing::error!("一个后台任务 panic 了，正在复位界面状态并接回轮询");
+                self.save_in_flight = None;
+                self.saving = false;
+                self.service_busy = false;
+                self.sync_form.busy = false;
+                self.poll_status()
+            }
             // 一件耗时的事跑完了：摘掉底部那行"正在…"，把它记成"刚做完什么、花了多久"，
             // 然后照常处理它自己的回包（`App::activity` 是唯一挂它的地方）。
             //

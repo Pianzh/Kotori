@@ -145,6 +145,28 @@ fn stopping_the_service_by_hand_is_not_undone_by_the_ui() {
     assert_eq!(app.retry_attempts, 0);
 }
 
+/// 后台任务 panic 之后必须能复位:轮询那一拍是"只能由自身续期"的,自动保存的"在途"
+/// 标记也只在成功回包里清 —— 不接上,界面会活着但永远不再刷新状态、也永远不再保存。
+#[test]
+fn a_panicked_background_task_gets_the_ui_back_on_its_feet() {
+    let (mut app, _task) = App::new();
+    app.saving = true;
+    app.service_busy = true;
+    app.sync_form.busy = true;
+
+    let task = app.update(Message::EffectPanicked);
+
+    assert!(!app.saving, "在途标记必须清掉,否则永远不会再自动保存");
+    assert!(app.save_in_flight.is_none());
+    assert!(!app.service_busy);
+    assert!(!app.sync_form.busy);
+    assert_eq!(
+        task.into_effects().len(),
+        2,
+        "复位之后必须把轮询那一拍接回去(一次状态查询 + 下一拍的定时器)"
+    );
+}
+
 /// 没停成 / 别处又起了一个:界面必须说实话,不能一边"已连接"一边"已停止"。
 #[test]
 fn a_service_that_is_alive_again_clears_the_stopped_flag() {

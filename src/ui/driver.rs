@@ -99,12 +99,25 @@ pub(super) fn dispatch(message: Message) {
 fn spawn(task: Task<Message>) {
     let runtime = with_ui(|ui| ui.runtime.clone());
     for effect in task.into_effects() {
-        runtime.spawn(async move {
+        let handle = runtime.spawn(async move {
             let message = effect.await;
             if let Err(error) = slint::invoke_from_event_loop(move || dispatch(message)) {
                 // The window is gone, which is what closing it looks like from
                 // here. Nothing left to update — say so and stop.
                 tracing::debug!("窗口已关闭，丢弃一条回包: {error}");
+            }
+        });
+        // ⚠ 后台任务 panic 时进程不会退出,但它会**悄悄**弄死两条链:会话轮询的那一拍
+        // 是"只能由自身续期"的(运行中状态、再探测、服务按钮全停),而自动保存的"在途"
+        // 标记只在成功回包里清 —— 此后**永远不会再自动保存**,用户改了设置只会悄悄丢掉。
+        // 崩溃报告只走 stderr,而 GUI 模式把日志重定向进文件、双击启动时连控制台都没有,
+        // 用户完全无从察觉。所以这里盯着那个 JoinHandle。
+        runtime.spawn(async move {
+            if let Err(error) = handle.await
+                && error.is_panic()
+            {
+                tracing::error!("后台任务 panic: {error}");
+                let _ = slint::invoke_from_event_loop(|| dispatch(Message::EffectPanicked));
             }
         });
     }
