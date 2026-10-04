@@ -26,7 +26,9 @@
 //!   * `archive`：一个包怎么打、怎么解、哪些文件该覆盖（纯本地，可单测）；
 //!   * `rclone_args`：一次 rclone 调用该带哪些参数；
 //!   * `rclone_env`：凭据怎么交给子进程，以及 rclone 可执行文件在哪；
-//!   * `save_targets`：配置里的存档位置落到这台机器的哪个目录。
+//!   * `save_targets`：配置里的存档位置落到这台机器的哪个目录；
+//!   * `baseline`：我认账的云端那一版（每个游戏一份，只在本地，读写都在这一个文件里）；
+//!   * `decision`：「谁新谁旧」的纯函数判定（不读盘 —— 所以判定表能被表驱动地测）。
 
 /// Remote name synthesised through rclone's environment configuration.
 pub const REMOTE: &str = "kotori";
@@ -70,6 +72,11 @@ pub const fn null_config_path() -> &'static str {
     if cfg!(windows) { "NUL" } else { "/dev/null" }
 }
 
+// ⚠ 这两行是 PLATFORMS.md §6 的第 4/5 步（基线 + 判定），现在还**没有人调用**：
+// 接进启动前的流程是第 6 步。所以两个文件各自在头顶压了一行 `#![allow(dead_code)]`，
+// 第 6 步接上之后**连同那两个文件的 `#![allow(dead_code)]` 一起删掉**。
+mod baseline;
+mod decision;
 mod rclone_args;
 mod rclone_env;
 mod remote_paths;
