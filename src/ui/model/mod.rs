@@ -19,6 +19,9 @@ mod cloud_pick;
 mod cloud_version;
 mod confirm;
 mod environment;
+// `FormMsg` 是 `Message` 的载荷之一（几处 `Result<FormMsg, String>`），同样要放宽到
+// `pub(crate)`（同上面的 `MatchReply`）。
+mod form_msg;
 mod game;
 mod picker;
 mod session;
@@ -43,6 +46,7 @@ pub(super) use cloud_label::{identity_label, identity_summary};
 pub(super) use cloud_pick::{CloudPick, CloudPickPurpose};
 pub(in crate::ui) use confirm::Confirmation;
 pub(super) use environment::{EnvCheck, Environment};
+pub(crate) use form_msg::FormMsg;
 pub(super) use game::{AUTOSAVE_DEBOUNCE, Draft, MountRef, SAVE_PATH_KINDS, SaveAttempt};
 // `SaveScope` 是 `Message` 的载荷之一（`Message` 自己是 `pub(crate)`），所以它得跟着
 // 放宽到 `pub(crate)`，否则 clippy 报"类型比用到它的那个字段更私有"。

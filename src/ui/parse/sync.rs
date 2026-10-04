@@ -158,7 +158,11 @@ pub(in crate::ui) fn parse_sync_status(value: &Value) -> Result<SyncStatus, Stri
 }
 
 /// One line summarising a sync result: how many locations moved, or what broke.
-pub(in crate::ui) fn describe_sync_outcome(value: &Value) -> String {
+///
+/// ⚠ 返回 [`FormMsg`] 而不是 `String`（B13）：这句话是不是坏消息**在这里就知道**
+/// （`error` 字段有没有东西），不该让 `render` 事后靠 `contains("失败")` 去猜 ——
+/// 那句判据在改文案的人手里是一颗地雷。
+pub(in crate::ui) fn describe_sync_outcome(value: &Value) -> FormMsg {
     let outcomes: Vec<&Value> = match (
         value.get("games").and_then(|v| v.as_array()),
         value.get("game").filter(|v| !v.is_null()),
@@ -181,6 +185,10 @@ pub(in crate::ui) fn describe_sync_outcome(value: &Value) -> String {
             .into_iter()
             .flatten()
         {
+            // ⚠ `failed` 这一格从前就什么都不做（既不进 `problems`、也不算 moved），
+            //    所以"某个位置失败、但引擎没报 error"时这句话仍是好消息。
+            //    这是 2026-10-04 发现、**故意没动**的既有行为，已记进待办 ——
+            //    改它会让"失败的位置"第一次出现在摘要里，那是另一件事（要用户拍板）。
             match location.get("action").and_then(|v| v.as_str()) {
                 Some("skipped") => skipped += 1,
                 Some("failed") => {}
@@ -190,12 +198,12 @@ pub(in crate::ui) fn describe_sync_outcome(value: &Value) -> String {
     }
 
     if !problems.is_empty() {
-        return format!("失败：{}", problems.join("；"));
+        return FormMsg::error(format!("失败：{}", problems.join("；")));
     }
     if moved == 0 {
-        return format!("没有需要同步的变化（跳过 {skipped} 个位置）");
+        return FormMsg::ok(format!("没有需要同步的变化（跳过 {skipped} 个位置）"));
     }
-    format!("完成：{moved} 个位置已同步，跳过 {skipped} 个")
+    FormMsg::ok(format!("完成：{moved} 个位置已同步，跳过 {skipped} 个"))
 }
 
 /// 启动那一问里那一条"疑似找到的"（`needs_sync_decision` 回包里的 `cloud`）。
@@ -350,17 +358,22 @@ mod tests {
             }]
         });
         let summary = describe_sync_outcome(&value);
-        assert!(summary.contains("1 个位置已同步"), "{summary}");
-        assert!(summary.contains("跳过 1"), "{summary}");
+        assert!(summary.text().contains("1 个位置已同步"), "{summary}");
+        assert!(summary.text().contains("跳过 1"), "{summary}");
 
         // Nothing changed is not a failure.
         let value = serde_json::json!({
             "ok": true,
             "games": [{ "game_id": "demo", "name": "Demo", "ok": true, "locations": [] }]
         });
-        assert!(describe_sync_outcome(&value).contains("没有需要同步的变化"));
+        assert!(
+            describe_sync_outcome(&value)
+                .text()
+                .contains("没有需要同步的变化")
+        );
 
-        // A failure names the location that broke.
+        // A failure names the location that broke —— 而且**从一开始就是坏消息**，
+        // 不用等 render 去猜（B13）。
         let value = serde_json::json!({
             "ok": false,
             "game": {
@@ -372,7 +385,16 @@ mod tests {
             }
         });
         let summary = describe_sync_outcome(&value);
-        assert!(summary.contains("失败"), "{summary}");
-        assert!(summary.contains("savedata"), "{summary}");
+        assert!(summary.text().contains("失败"), "{summary}");
+        assert!(summary.text().contains("savedata"), "{summary}");
+        assert!(!summary.is_ok(), "有 error 就是坏消息: {summary}");
+
+        // 反过来：一切正常的那一条必须是好消息。
+        let value = serde_json::json!({
+            "ok": true,
+            "games": [{ "game_id": "demo", "name": "Demo", "ok": true,
+                        "locations": [{ "action": "uploaded", "detail": "已上传" }] }]
+        });
+        assert!(describe_sync_outcome(&value).is_ok());
     }
 }

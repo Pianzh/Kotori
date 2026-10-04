@@ -262,7 +262,9 @@ pub(in crate::ui) struct SyncForm {
     pub(in crate::ui) confirm_master_delete: bool,
     /// kopia 的"连接信息"默认折叠 —— 里面有桶名和密码状态,不该一打开就摊开。
     pub(in crate::ui) connection_revealed: bool,
-    pub(in crate::ui) msg: Option<String>,
+    /// 表单下面那句话。**带语义**（B13）：写入的人显式说这是好消息还是坏消息，
+    /// `render` 只读标记，绝不从文字里猜（见 [`super::form_msg`]）。
+    pub(in crate::ui) msg: Option<super::FormMsg>,
     pub(in crate::ui) busy: bool,
 }
 

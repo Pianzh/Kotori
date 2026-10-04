@@ -96,7 +96,8 @@ pub struct App {
     /// 刷新、失败退避重试)这时都不许把守护进程悄悄拉回来 —— 否则"停止"按下去三秒
     /// 就自己复活了。它只在连上守护进程(用户点了启动、或从别处起了一个)时清掉。
     pub(super) service_busy: bool,
-    pub(super) service_msg: Option<String>,
+    /// 服务那一行小字，**带语义**（B13）—— 好坏由写入点说了算，见 [`FormMsg`]。
+    pub(super) service_msg: Option<FormMsg>,
     pub(super) daemon_paused: bool,
     /// 「浏览…」:这台机器上有没有可用的系统对话框。`None` = 还没探完(按钮先灰着,
     /// 探完立刻放行 —— 探测是一次 D-Bus 调用,开机那一瞬间就回来了)。

@@ -79,19 +79,29 @@ impl App {
                 let game_id = self.versions.game_id.clone();
                 let socket = self.daemon_socket.clone();
                 match action {
-                    Confirmation::Replace { version } => self.activity("取回存档", 
-                        async move { sync_restore(&socket, &game_id, Some(version.as_str())).await },
+                    Confirmation::Replace { version } => self.activity(
+                        "取回存档",
+                        async move {
+                            // 这一页的那句话只存文字（`VersionsState::msg` 是 `String`），
+                            // 所以在这里把语义那一半丢掉 —— 它不参与颜色判断。
+                            sync_restore(&socket, &game_id, Some(version.as_str()))
+                                .await
+                                .map(|msg| msg.text().to_string())
+                        },
                         Message::GameVersionsReplaced,
                     ),
-                    Confirmation::DeleteVersion { version } => self.activity("删除那一版存档", 
+                    Confirmation::DeleteVersion { version } => self.activity(
+                        "删除那一版存档",
                         async move { sync_delete_version(&socket, key, version).await },
                         Message::GameVersionsDeleted,
                     ),
-                    Confirmation::ClearVersions => self.activity("删除云端版本", 
+                    Confirmation::ClearVersions => self.activity(
+                        "删除云端版本",
                         async move { sync_clear_versions(&socket, key).await },
                         Message::GameVersionsDeleted,
                     ),
-                    Confirmation::ForgetIdentity => self.activity("忘掉这条云端身份", 
+                    Confirmation::ForgetIdentity => self.activity(
+                        "忘掉这条云端身份",
                         async move { sync_forget_identity(&socket, key).await },
                         Message::GameVersionsDeleted,
                     ),

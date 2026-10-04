@@ -45,8 +45,12 @@ pub(super) fn push_sync(ui: &mut Ui) {
         |v| f.set_confirm_master_delete(v),
     );
 
-    let message = form.msg.clone().unwrap_or_default();
-    let ok = !message.contains("失败") && !message.contains("不一样") && !message.contains("请先");
+    // 这句话是成功还是失败，**由写入的人说**（B13：从前这里靠 `contains("失败")`
+    // 之类的字符串猜，改文案的人根本不知道自己在动一个判据）。
+    let (message, ok) = match &form.msg {
+        Some(msg) => (msg.text().to_string(), msg.is_ok()),
+        None => (String::new(), true),
+    };
     push_str(f.get_message(), &message, |v| f.set_message(v));
     push_bool(f.get_message_ok(), ok, |v| f.set_message_ok(v));
 

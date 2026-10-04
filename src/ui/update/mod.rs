@@ -15,6 +15,9 @@ mod profile;
 pub(in crate::ui) mod run;
 mod settings;
 mod sync;
+// 凭据那一族从 `sync.rs` 拆出来（那边顶到 500 行软线了），分法与 daemon 侧
+// `sync_rpc` 一致：一边是"把存档搬来搬去"，一边是"凭据放在哪、能不能打开"。
+mod sync_credentials;
 mod versions;
 
 use settings::is_settings_message;

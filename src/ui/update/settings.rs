@@ -84,7 +84,7 @@ impl App {
                 match result {
                     Ok(message) => {
                         self.daemon_paused = false;
-                        self.service_msg = Some(message);
+                        self.service_msg = Some(FormMsg::ok(message));
                         // 起来了就把库重新读一遍(顺便把连接状态摆正)。
                         self.retry_attempts = 0;
                         self.activity(
@@ -94,7 +94,7 @@ impl App {
                         )
                     }
                     Err(e) => {
-                        self.service_msg = Some(format!("启动失败: {e}"));
+                        self.service_msg = Some(FormMsg::error(format!("启动失败: {e}")));
                         Task::none()
                     }
                 }
@@ -117,14 +117,14 @@ impl App {
                         self.daemon_connected = Some(false);
                         // 会话列表随之作废:守护进程走了,这里再也问不到谁在跑。
                         self.running.clear();
-                        self.service_msg = Some(format!(
+                        self.service_msg = Some(FormMsg::ok(format!(
                             "{message}（正在玩的游戏不受影响,但它退出后不会再自动上传存档）"
-                        ));
+                        )));
                     }
                     Err(e) => {
                         // 没停掉就别立那块牌子,否则界面在说一件没发生的事。
                         self.daemon_paused = false;
-                        self.service_msg = Some(format!("停止失败: {e}"));
+                        self.service_msg = Some(FormMsg::error(format!("停止失败: {e}")));
                     }
                 }
                 Task::none()

@@ -33,10 +33,11 @@ pub(super) fn settings_page(mut ui: Ui) {
     }
     ui.app.daemon_connected = Some(true);
     ui.app.daemon_paused = false;
-    ui.app.service_msg = Some("后台服务已停止（正在玩的游戏不受影响）".into());
+    // 一句话 + 它的好坏都由写入点给（B13）：这里要**两种颜色都画一遍**。
+    ui.app.service_msg = Some(FormMsg::ok("后台服务已停止（正在玩的游戏不受影响）"));
     ui.app.service_busy = true;
     render(&mut ui);
-    ui.app.service_msg = Some("启动失败: 守护进程未在 5 秒内就绪".into());
+    ui.app.service_msg = Some(FormMsg::error("启动失败: 守护进程未在 5 秒内就绪"));
     ui.app.service_busy = false;
     render(&mut ui);
     // 后台服务那一行的控件最宽(状态字 + 两个按钮),也量一次:整页横向溢出

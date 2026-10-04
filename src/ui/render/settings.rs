@@ -17,8 +17,11 @@ pub(super) fn push_settings(ui: &mut Ui) {
     push_bool(w.get_service_busy(), app.service_busy, |v| {
         w.set_service_busy(v)
     });
-    let message = app.service_msg.clone().unwrap_or_default();
-    let ok = !message.contains("失败");
+    // 同 `render/sync.rs`：好坏由写入点说（B13），这里只读标记。
+    let (message, ok) = match &app.service_msg {
+        Some(msg) => (msg.text().to_string(), msg.is_ok()),
+        None => (String::new(), true),
+    };
     push_str(w.get_service_message(), &message, |v| {
         w.set_service_message(v)
     });

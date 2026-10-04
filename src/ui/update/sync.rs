@@ -1,6 +1,12 @@
-//! 云同步那一块的消息：设置、凭据、测试连接、立即同步、恢复。
+//! 云同步那一块的消息：设置、测试连接、立即同步、恢复。
 //!
 //! 从 `update/mod.rs` 拆出来（那里本来是 900 多行的单个 `match`）。语义一字未动。
+//! 凭据那一族（解锁 / 锁定 / 设主密码 / 删主密码文件）后来又拆到了
+//! [`super::sync_credentials`]：它们只跟"凭据放在哪、能不能打开"有关，与"存哪、
+//! 传什么"是两件事（同 daemon 侧 `sync_rpc` 的分法）。
+//!
+//! ⚠ 这个文件里每一处 `FormMsg` 都在回答"这句话是成功还是失败"（B13）—— 从前那件事
+//! 是 `render` 靠 `contains("失败")` 猜的，写出这句提示的人根本不知道自己在动一个判据。
 
 use super::super::*;
 
@@ -10,6 +16,11 @@ impl App {
     /// 拆出来只是因为 `update` 那个 match 太长：**这里改的仍然是同一个 `App`**，
     /// 语义一字未动。
     pub(super) fn update_sync(&mut self, message: Message) -> Task<Message> {
+        // 凭据那一族先分派出去（见文件头）。`handles` 按变体名精确列，漏一个就会
+        // 掉进下面那个 `unreachable!`，委派的测试会立刻炸。
+        if super::sync_credentials::handles(&message) {
+            return self.update_sync_credentials(message);
+        }
         match message {
             Message::SyncStatusLoaded(result) => match *result {
                 Ok(status) => {
@@ -19,7 +30,7 @@ impl App {
                 }
                 Err(e) => {
                     self.sync_form.loaded = true;
-                    self.sync_form.msg = Some(format!("读取同步状态失败: {e}"));
+                    self.sync_form.msg = Some(FormMsg::error(format!("读取同步状态失败: {e}")));
                     Task::none()
                 }
             },
@@ -47,13 +58,14 @@ impl App {
                 match result {
                     Ok(()) => {
                         self.sync_form.msg = Some(if self.sync_form.enabled {
-                            "云同步已启用：退出游戏后会自动上传".to_string()
+                            FormMsg::ok("云同步已启用：退出游戏后会自动上传")
                         } else {
-                            "云同步已关闭".to_string()
+                            FormMsg::ok("云同步已关闭")
                         });
                     }
                     Err(error) => {
-                        self.sync_form.msg = Some(format!("改云同步总开关失败: {error}"));
+                        self.sync_form.msg =
+                            Some(FormMsg::error(format!("改云同步总开关失败: {error}")));
                         // 没写进去就别让界面继续装着改过了：清掉 dirty，好让下面这次刷新把
                         // 配置里那个真正的值拉回来（与 `SyncEngineSaved` 同一条规矩）。而且
                         // **挂横幅** —— 这颗开关是最容易"以为生效了"的那一个。
@@ -111,11 +123,13 @@ impl App {
                 match result {
                     // daemon 说这一笔真的换了引擎 ⇒ 那条"对面数据看不见"的警告要说出来。
                     Ok(true) => {
-                        self.sync_form.msg = Some(engine_switched_note(&self.sync_form.engine));
+                        self.sync_form.msg =
+                            Some(FormMsg::ok(engine_switched_note(&self.sync_form.engine)));
                     }
-                    Ok(false) => self.sync_form.msg = Some("同步方式已保存".to_string()),
+                    Ok(false) => self.sync_form.msg = Some(FormMsg::ok("同步方式已保存")),
                     Err(error) => {
-                        self.sync_form.msg = Some(format!("切换同步方式失败: {error}"));
+                        self.sync_form.msg =
+                            Some(FormMsg::error(format!("切换同步方式失败: {error}")));
                         // 没写进去就别让界面继续装着已经换了：清掉 dirty，好让下面这次
                         // 刷新把配置里那个真正的值拉回来。
                         self.sync_form.settings_dirty = false;
@@ -145,13 +159,16 @@ impl App {
                         // 密码进了凭据库就立刻从输入框里消失,与 B2 那两条同一套规矩。
                         self.sync_form.kopia_password.clear();
                         self.sync_form.msg = Some(if using_default {
-                            "已改回默认密码 kotori —— 任何拿到这个 bucket 的人都能解开仓库"
-                                .to_string()
+                            FormMsg::ok(
+                                "已改回默认密码 kotori —— 任何拿到这个 bucket 的人都能解开仓库",
+                            )
                         } else {
-                            "kopia 仓库密码已保存".to_string()
+                            FormMsg::ok("kopia 仓库密码已保存")
                         });
                     }
-                    Err(error) => self.sync_form.msg = Some(format!("保存失败: {error}")),
+                    Err(error) => {
+                        self.sync_form.msg = Some(FormMsg::error(format!("保存失败: {error}")));
+                    }
                 }
                 self.reload_sync()
             }
@@ -163,7 +180,9 @@ impl App {
                 let patch = match form.patch() {
                     Ok(patch) => patch,
                     Err(error) => {
-                        self.sync_form.msg = Some(error);
+                        // ⚠ 这是"没存下去"，从前的字符串判据（`contains("失败")`）看不出
+                        //    来，会把它显示成绿色。
+                        self.sync_form.msg = Some(FormMsg::error(error));
                         return Task::none();
                     }
                 };
@@ -180,10 +199,13 @@ impl App {
                 self.sync_form.busy = false;
                 match &result {
                     Ok(true) => {
-                        self.sync_form.msg = Some(engine_switched_note(&self.sync_form.engine));
+                        self.sync_form.msg =
+                            Some(FormMsg::ok(engine_switched_note(&self.sync_form.engine)));
                     }
-                    Ok(false) => self.sync_form.msg = Some("已保存".to_string()),
-                    Err(e) => self.sync_form.msg = Some(format!("保存失败: {e}")),
+                    Ok(false) => self.sync_form.msg = Some(FormMsg::ok("已保存")),
+                    Err(e) => {
+                        self.sync_form.msg = Some(FormMsg::error(format!("保存失败: {e}")));
+                    }
                 }
                 if result.is_ok() {
                     // The daemon now holds exactly what the form holds, so a
@@ -196,13 +218,15 @@ impl App {
                 let key_id = self.sync_form.key_id.trim().to_string();
                 let app_key = self.sync_form.app_key.trim().to_string();
                 if key_id.is_empty() && app_key.is_empty() {
-                    self.sync_form.msg = Some("两个字段都空着：这只会清掉已保存的凭据".to_string());
+                    self.sync_form.msg =
+                        Some(FormMsg::error("两个字段都空着：这只会清掉已保存的凭据"));
                     return Task::none();
                 }
                 // 内存那一级只是"过渡":没有可持久化的后端时,先把主密码设起来,
                 // 否则凭据活不过这个守护进程 —— 静默接受等于骗用户(ADR-014)。
                 if self.credential_store() == CredentialStore::Session {
-                    self.sync_form.msg = Some(CredentialStore::needs_master_password().to_string());
+                    self.sync_form.msg =
+                        Some(FormMsg::error(CredentialStore::needs_master_password()));
                     return Task::none();
                 }
                 self.sync_form.busy = true;
@@ -217,8 +241,8 @@ impl App {
             Message::SyncCredentialsSaved(result) => {
                 self.sync_form.busy = false;
                 self.sync_form.msg = Some(match &result {
-                    Ok(()) => self.credential_store().saved_note("凭据"),
-                    Err(e) => format!("保存凭据失败: {e}"),
+                    Ok(()) => FormMsg::ok(self.credential_store().saved_note("凭据")),
+                    Err(e) => FormMsg::error(format!("保存凭据失败: {e}")),
                 });
                 if result.is_ok() {
                     // The daemon consumed them; never echo secrets back.
@@ -240,8 +264,11 @@ impl App {
             Message::SyncCredentialsCleared(result) => {
                 self.sync_form.busy = false;
                 self.sync_form.msg = Some(match &result {
-                    Ok(()) => format!("已从{}里删除 B2 凭据", self.credential_store().name()),
-                    Err(e) => format!("删除凭据失败: {e}"),
+                    Ok(()) => FormMsg::ok(format!(
+                        "已从{}里删除 B2 凭据",
+                        self.credential_store().name()
+                    )),
+                    Err(e) => FormMsg::error(format!("删除凭据失败: {e}")),
                 });
                 if result.is_ok() {
                     self.sync_form.key_id.clear();
@@ -255,7 +282,7 @@ impl App {
                 // 建仓库、列一次快照),最长能到几十秒,而 busy 只把按钮变灰 ——
                 // 用户看到的就是"点了没反应"(2026-09-18 报的)。「立即同步全部」一直
                 // 都有这句,是这一个漏了。
-                self.sync_form.msg = Some("正在测试连接…".to_string());
+                self.sync_form.msg = Some(FormMsg::ok("正在测试连接…"));
                 let socket = self.daemon_socket.clone();
                 self.activity(
                     "测试云连接",
@@ -340,127 +367,14 @@ impl App {
             Message::SyncTested(result) => {
                 self.sync_form.busy = false;
                 self.sync_form.msg = Some(match result {
-                    Ok(remote) => format!("连接正常：{remote}"),
-                    Err(e) => format!("连接失败: {e}"),
+                    Ok(remote) => FormMsg::ok(format!("连接正常：{remote}")),
+                    Err(e) => FormMsg::error(format!("连接失败: {e}")),
                 });
                 Task::none()
-            }
-            Message::SyncMasterPasswordChanged(value) => {
-                self.sync_form.master_password = value;
-                Task::none()
-            }
-            Message::SyncUnlock => {
-                let password = self.sync_form.master_password.clone();
-                if password.is_empty() {
-                    self.sync_form.msg = Some("请先输入主密码".to_string());
-                    return Task::none();
-                }
-                self.sync_form.busy = true;
-                self.sync_form.msg = None;
-                let socket = self.daemon_socket.clone();
-                self.activity(
-                    "解锁凭据",
-                    async move { unlock_credentials(&socket, &password).await },
-                    Message::SyncUnlocked,
-                )
-            }
-            Message::SyncUnlocked(result) => {
-                self.sync_form.busy = false;
-                match result {
-                    Ok(()) => {
-                        self.sync_form.master_password.clear();
-                        self.sync_form.msg = Some("已解锁".to_string());
-                    }
-                    Err(e) => self.sync_form.msg = Some(e),
-                }
-                self.reload_sync()
-            }
-            Message::SyncSetMasterPassword => {
-                let password = self.sync_form.master_password.clone();
-                if password.chars().count() < self.min_master_password() {
-                    self.sync_form.msg = Some(format!(
-                        "主密码至少要 {} 个字符",
-                        self.min_master_password()
-                    ));
-                    return Task::none();
-                }
-                self.sync_form.busy = true;
-                self.sync_form.msg = None;
-                let socket = self.daemon_socket.clone();
-                self.activity(
-                    "设置主密码",
-                    async move { set_master_password(&socket, &password).await },
-                    Message::SyncMasterSaved,
-                )
-            }
-            Message::SyncMasterSaved(result) => {
-                self.sync_form.busy = false;
-                match result {
-                    Ok(sentence) => {
-                        self.sync_form.master_password.clear();
-                        // `set_master_password` 返回的已经是整句话（可能带明文文件没删掉的
-                        // 警告，见 B2），别在这里再包一层。
-                        self.sync_form.msg = Some(sentence);
-                    }
-                    Err(e) => self.sync_form.msg = Some(e),
-                }
-                self.reload_sync()
-            }
-            Message::SyncLockCredentials => {
-                if self.sync_form.busy {
-                    return Task::none();
-                }
-                self.sync_form.busy = true;
-                self.sync_form.msg = None;
-                let socket = self.daemon_socket.clone();
-                self.activity(
-                    "锁定凭据",
-                    async move { lock_credentials(&socket).await },
-                    Message::SyncCredentialsLocked,
-                )
-            }
-            Message::SyncCredentialsLocked(result) => {
-                self.sync_form.busy = false;
-                self.sync_form.msg = Some(match result {
-                    Ok(()) => "凭据文件已锁定；再要用它得重新输入主密码".to_string(),
-                    Err(e) => format!("锁定失败: {e}"),
-                });
-                self.reload_sync()
-            }
-            Message::SyncMasterDeleteRequested => {
-                self.sync_form.confirm_master_delete = true;
-                Task::none()
-            }
-            Message::SyncMasterDeleteCancelled => {
-                self.sync_form.confirm_master_delete = false;
-                Task::none()
-            }
-            Message::SyncMasterDeleteConfirmed => {
-                // 破坏性操作:确认过一次就够了,别再让用户点第三下。
-                if !self.sync_form.confirm_master_delete {
-                    return Task::none();
-                }
-                self.sync_form.confirm_master_delete = false;
-                self.sync_form.busy = true;
-                self.sync_form.msg = None;
-                let socket = self.daemon_socket.clone();
-                self.activity(
-                    "删除主密码文件",
-                    async move { clear_master_file(&socket).await },
-                    Message::SyncMasterDeleted,
-                )
-            }
-            Message::SyncMasterDeleted(result) => {
-                self.sync_form.busy = false;
-                self.sync_form.msg = Some(match result {
-                    Ok(()) => "已删除主密码凭据文件（存在里面的凭据一起消失了）".to_string(),
-                    Err(e) => format!("删除凭据文件失败: {e}"),
-                });
-                self.reload_sync()
             }
             Message::SyncNow(game_id) => {
                 self.sync_form.busy = true;
-                self.sync_form.msg = Some("正在同步…".to_string());
+                self.sync_form.msg = Some(FormMsg::ok("正在同步…"));
                 let socket = self.daemon_socket.clone();
                 self.activity(
                     "同步这一款的存档",
@@ -471,8 +385,10 @@ impl App {
             Message::SyncNowDone(result) => {
                 self.sync_form.busy = false;
                 match result {
-                    Ok(summary) => {
-                        self.sync_form.msg = Some(summary);
+                    // ⚠ 好消息还是坏消息由 `describe_sync_outcome` 判定（B13）：
+                    //    "某个位置失败了"与"没有需要同步的变化"从前长得一样。
+                    Ok(msg) => {
+                        self.sync_form.msg = Some(msg);
                         self.reload_sync()
                     }
                     // ⚠ 失败**必须挂顶部横幅**（用户 2026-09-28："算不了直接横幅报错"）：
@@ -480,7 +396,7 @@ impl App {
                     // 带指纹"这类拒绝正是从这里冒出来的（见 `sync_rpc::pack_identity`）。
                     Err(error) => {
                         let message = format!("同步失败: {error}");
-                        self.sync_form.msg = Some(message.clone());
+                        self.sync_form.msg = Some(FormMsg::error(message.clone()));
                         Task::batch([self.set_error(message), self.reload_sync()])
                     }
                 }
@@ -498,7 +414,7 @@ impl App {
                     return Task::none();
                 };
                 self.sync_form.busy = true;
-                self.sync_form.msg = Some("正在恢复…".to_string());
+                self.sync_form.msg = Some(FormMsg::ok("正在恢复…"));
                 let socket = self.daemon_socket.clone();
                 self.activity(
                     "取回存档",

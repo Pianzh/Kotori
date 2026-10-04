@@ -307,7 +307,7 @@ pub enum Message {
     SyncUnlock,
     SyncUnlocked(Result<(), String>),
     SyncSetMasterPassword,
-    SyncMasterSaved(Result<String, String>),
+    SyncMasterSaved(Result<FormMsg, String>),
     /// 锁上主密码凭据文件(密钥只留在内存里),以及删掉它(里面的凭据一起消失)。
     SyncLockCredentials,
     SyncCredentialsLocked(Result<(), String>),
@@ -316,7 +316,7 @@ pub enum Message {
     SyncMasterDeleteConfirmed,
     SyncMasterDeleted(Result<(), String>),
     SyncNow(Option<String>),
-    SyncNowDone(Result<String, String>),
+    SyncNowDone(Result<FormMsg, String>),
     SyncRestoreRequested(String, Option<String>),
     SyncRestoreCancelled,
     SyncRestoreConfirmed,
