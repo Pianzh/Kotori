@@ -110,6 +110,9 @@ impl ScaleAlgorithm {
     /// Names shown in the UI / accepted by [`ScaleAlgorithm::from_label`].
     pub const ALL: [&'static str; 4] = ["Fsr", "Nis", "Integer", "Bilinear"];
 
+    /// ⚠ 只有测试用它(它与 [`Self::ALL`] 的一致性由 `profile/tests.rs` 守着):界面上
+    /// 显示的就是 `ALL` 里那几个字符串,生产代码不需要"枚举 → 标签"这一步。
+    #[cfg(test)]
     pub fn label(&self) -> &'static str {
         match self {
             Self::Fsr { .. } => "Fsr",

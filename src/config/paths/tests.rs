@@ -183,17 +183,41 @@ fn no_exe_information_falls_back_to_the_default() {
 }
 
 #[test]
-fn a_malformed_config_is_backed_up_by_load_at() {
+fn a_malformed_config_is_backed_up_and_reported_by_load_at() {
     let dir = test_scratch("config-corrupt-load-at");
     let path = dir.join("config.toml");
-    std::fs::write(&path, "this is not = valid toml {{{").unwrap();
+    let broken = "this is not = valid toml {{{";
+    std::fs::write(&path, broken).unwrap();
 
-    let loaded = load_at(&path).expect("解析失败时应该回退默认配置");
-    assert!(loaded.games.is_empty());
-    assert_eq!(loaded.daemon.log_level, Config::default().daemon.log_level);
+    // ⚠ 绝不回退默认配置:那是"成功地给出一份空库",调用方与用户都以为一切正常
+    // (退出码 0、"No games configured."),而游戏库其实已经不见了。
+    let error = load_at(&path).expect_err("解析失败必须如实报错");
+    assert!(error.to_string().contains("解析失败"), "{error}");
 
     let backup = path.with_extension("toml.corrupt");
-    assert!(backup.is_file(), "原配置应该被保留为 .corrupt");
-    assert!(!path.exists(), "原路径应该让位给备份");
+    assert!(backup.is_file(), "坏配置要留一份备份");
+    assert_eq!(std::fs::read_to_string(&backup).unwrap(), broken);
+    assert!(path.is_file(), "原文件不动:用户得能自己改回去");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), broken);
+
+    // 原文件留着 ⇒ 每次启动都会撞上同一个错误,但**不该**每次都新建一份备份。
+    let again = load_at(&path).expect_err("第二次也一样报错");
+    assert!(again.to_string().contains("解析失败"), "{again}");
+    assert!(
+        !path.with_extension("toml.corrupt.2").exists(),
+        "同一份坏内容只备份一次"
+    );
+
+    // 内容换了(用户改坏成另一个样子)⇒ 那一份必须另存,不能把上面那份盖掉。
+    std::fs::write(&path, "another = broken {{{").unwrap();
+    assert!(load_at(&path).is_err());
+    let second = path.with_extension("toml.corrupt.2");
+    assert!(second.is_file(), "换过的坏内容要另存一份");
+    assert_eq!(
+        std::fs::read_to_string(&backup).unwrap(),
+        broken,
+        "第一份备份不许被覆盖"
+    );
+
     std::fs::remove_dir_all(&dir).ok();
 }

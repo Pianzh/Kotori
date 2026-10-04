@@ -219,9 +219,11 @@ pub fn socket_path() -> PathBuf {
 
 /// Load the user config.
 ///
-/// A missing file yields defaults. A *corrupt* file is moved aside to
-/// `<path>.corrupt` and defaults are returned, so a broken config never bricks
-/// the app while the user's data stays recoverable (GOALS §6.2).
+/// Load the user config.
+///
+/// 文件不在 ⇒ 默认配置（还没配过）。文件在但**读不懂** ⇒ 备份一份、然后**如实报错**，
+/// 绝不返回那份"成功地给出来的空配置" —— 那会让调用方和用户都以为一切正常（退出码 0、
+/// "No games configured."），而游戏库其实已经不见了。
 pub fn load() -> anyhow::Result<Config> {
     load_at(&config_path())
 }
@@ -233,47 +235,75 @@ pub fn load() -> anyhow::Result<Config> {
 /// over another.
 ///
 /// ⚠ **读不动**与**读不懂**是两件事，别混成一条路：读不动（权限、I/O 错误）如实
-/// 报错，既不把文件搬去 `.corrupt`、也不回退默认值 —— 否则下一次保存会把一份默认
-/// 配置写到原路径上，用户的库就此不见（BUG-15 的另一半）。只有真的解析不了，才按
-/// 下面那条老规矩备份并回退。
+/// 报错，既不备份、也不回退默认值 —— 否则下一次保存会把一份默认配置写到原路径上，
+/// 用户的库就此不见（BUG-15 的另一半）。读不懂则备份一份、返回 `Err`，而且
+/// **原文件一动不动**：用户得能自己把它改回去。
 pub fn load_at(path: &Path) -> anyhow::Result<Config> {
     if !path.exists() {
         return Ok(Config::default());
     }
     // 「读不动」在这里先挡住：权限不对、路径其实是个目录、盘掉了 —— 这些是"这台机器
-    // 现在读不到它"，不是"这份配置坏了"。读全文一次（配置很小，多读一次不值得省），
-    // 之后剩下的失败就只可能是"读不懂"。
-    if let Err(err) = std::fs::read_to_string(path) {
+    // 现在读不到它"，不是"这份配置坏了"。
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
         // 刚好被删掉：与"还没有配置"同一条路。
-        if err.kind() == std::io::ErrorKind::NotFound {
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
             return Ok(Config::default());
         }
-        return Err(anyhow::anyhow!("读不了配置文件 {}: {err}", path.display()));
-    }
-    match load_from(path) {
+        Err(err) => return Err(anyhow::anyhow!("读不了配置文件 {}: {err}", path.display())),
+    };
+    match parse_config(&content) {
         Ok(config) => Ok(config),
         Err(err) => {
-            let backup = path.with_extension("toml.corrupt");
-            let moved = std::fs::rename(path, &backup).is_ok();
-            if moved {
-                tracing::error!(
-                    "配置解析失败，已备份到 {}，本次使用默认配置: {err}",
-                    backup.display()
-                );
-            } else {
-                tracing::error!("配置解析失败，本次使用默认配置: {err}");
-            }
-            Ok(Config::default())
+            let backup = backup_corrupt(path, &content);
+            let where_to = match &backup {
+                Some(backup) => format!("已备份到 {}", backup.display()),
+                None => "备份也没成功".to_string(),
+            };
+            tracing::error!("配置解析失败（{where_to}，原文件没动）: {err}");
+            Err(anyhow::anyhow!(
+                "配置解析失败（{where_to}）: {err}\n原文件没有改动 —— 改好它，或者把它删掉重新开始。"
+            ))
         }
     }
 }
 
+/// 给一份读不懂的配置留个备份，返回备份落点。
+///
+/// 两条规矩都在这里：
+/// * **原文件不动**（`copy` 而不是 `rename`）—— 用户得能自己把它改回去；
+/// * **同一份坏内容只备份一次**，而名字必须唯一 —— 原文件既然留着，每次启动都会撞上
+///   同一个错误；而 `copy` 会替换已存在的目标，固定名字会把上一次的备份盖掉（那可能
+///   是用户唯一的救回副本）。
+fn backup_corrupt(path: &Path, content: &str) -> Option<PathBuf> {
+    let first = path.with_extension("toml.corrupt");
+    if std::fs::read_to_string(&first).is_ok_and(|existing| existing == content) {
+        return Some(first);
+    }
+    let candidate = if first.exists() {
+        (2..100)
+            .map(|index| path.with_extension(format!("toml.corrupt.{index}")))
+            .find(|candidate| !candidate.exists())?
+    } else {
+        first
+    };
+    std::fs::copy(path, &candidate).ok()?;
+    Some(candidate)
+}
+
 /// Load and parse a config from an explicit path (strict: no fallback).
 ///
-/// [`load_at`] 先探一次"读不读得到"，再把它当严格解析用 —— 两条路的区别在调用方。
+/// ⚠ 只有测试用它:生产路径一律走 [`load_at`] —— 那边还得替调用方分辨"读不动"与
+/// "读不懂",并在读不懂时备份 + 报错。
+#[cfg(test)]
 pub fn load_from(path: &Path) -> anyhow::Result<Config> {
     let content = std::fs::read_to_string(path)?;
-    let mut config: Config = toml::from_str(&content)?;
+    parse_config(&content)
+}
+
+/// 解析一段配置文本（严格：没有回退）。
+fn parse_config(content: &str) -> anyhow::Result<Config> {
+    let mut config: Config = toml::from_str(content)?;
     config.normalize();
     Ok(config)
 }
