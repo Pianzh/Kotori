@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use serde_json::Value;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 #[cfg(unix)]
 use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::{Notify, RwLock};
@@ -170,6 +170,11 @@ impl Daemon {
         // must not kill a running game (ADR-002), so the two exits stay distinct
         // and only the signal path tears games down.
         let mut signalled = false;
+        // 信号 future 在循环**外面**建一次、pin 住再用:写在 `select!` 分支里的话每一轮
+        // 都会新建、而分支结束(比如 accept 那一支赢了)时它被 drop —— tokio 在最后一个
+        // 注册者消失时会把 OS 侧处置恢复成 `SIG_DFL`,那一个窄窗口里 SIGTERM 会让 daemon
+        // **不经 `close_all_sessions()` 直接死掉**,wine 前缀与进程组全留在原地。
+        let mut session_end = std::pin::pin!(session_end_signal());
 
         loop {
             tokio::select! {
@@ -193,7 +198,7 @@ impl Daemon {
                     tracing::info!("shutdown requested, stopping daemon");
                     break;
                 }
-                how = session_end_signal() => {
+                how = &mut session_end => {
                     tracing::info!("收到 {how}（会话要结束了），把在跑的游戏一并收尾");
                     signalled = true;
                     break;
@@ -322,15 +327,36 @@ impl Daemon {
         S: AsyncRead + AsyncWrite + Unpin,
     {
         let (reader, mut writer) = tokio::io::split(stream);
-        let mut lines = BufReader::new(reader).lines();
+        let mut reader = BufReader::new(reader);
+        let mut frame = Vec::new();
 
-        while let Some(line) = lines.next_line().await? {
-            let line = line.trim().to_string();
+        loop {
+            frame.clear();
+            // ⚠ 一帧必须有上限:`lines()` 是"多长都收" —— 本机任意进程连上来灌一批不含
+            // `\n` 的字节就能把守护进程撑死(内存爆掉)。它一死的后果不只是进程没了:
+            // 正在跑的游戏失去 watcher,退出时的自动上传**永远不会触发**,用户还以为
+            // 云备份一直在跑,直到真需要回档才发现最新存档根本没上去。
+            let read = (&mut reader)
+                .take(MAX_FRAME_BYTES as u64 + 1)
+                .read_until(b'\n', &mut frame)
+                .await?;
+            if read == 0 {
+                break;
+            }
+            if frame.len() > MAX_FRAME_BYTES {
+                tracing::warn!("IPC 帧超过 {MAX_FRAME_BYTES} 字节，断开这个连接");
+                break;
+            }
+            let line = String::from_utf8_lossy(&frame).trim().to_string();
             if line.is_empty() {
                 continue;
             }
 
-            tracing::debug!("IPC request: {}", line);
+            // ⚠ 别打整行:这一行里带着 `sync.set_master_password` 的**明文主密码**和
+            // `sync.set_credentials` 的 app key,而 `RUST_LOG=debug` 是官方支持的用法、
+            // daemon.log 还是追加打开且永不轮转(便携安装时就在 exe 旁边)。所以只留
+            // 方法名与参数的**键名**。
+            tracing::debug!("IPC request: {}", summarize_request(&line));
             let reply = self.handle_request(&line).await;
 
             // Flush the response *before* letting the accept loop exit, so
@@ -417,6 +443,29 @@ async fn session_end_signal() -> &'static str {
 async fn session_end_signal() -> &'static str {
     let _ = tokio::signal::ctrl_c().await;
     "Ctrl-C"
+}
+
+/// 一帧 IPC 请求的上限。正常请求都很小(最大的大概是 `game.update` 带一串存档位置),
+/// 64 KiB 绰绰有余 —— 它挡住的是"灌字节把守护进程撑死"。
+const MAX_FRAME_BYTES: usize = 64 * 1024;
+
+/// 把一条 JSON-RPC 请求压成"方法名 + 参数的键名",**用于日志**。
+///
+/// 绝不带值:凭据类请求(`sync.set_master_password` / `sync.set_credentials` /
+/// `sync.set_kopia_password`)的参数就是明文密钥,而日志是追加写的、不轮转的。
+pub(super) fn summarize_request(line: &str) -> String {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(line) else {
+        return "<不是合法的 JSON>".to_string();
+    };
+    let method = value.get("method").and_then(|v| v.as_str()).unwrap_or("?");
+    let Some(params) = value.get("params").and_then(|v| v.as_object()) else {
+        return method.to_string();
+    };
+    if params.is_empty() {
+        return method.to_string();
+    }
+    let keys: Vec<&str> = params.keys().map(String::as_str).collect();
+    format!("{method}（参数: {}）", keys.join(", "))
 }
 
 /// A JSON-RPC response ready to be written to the wire.

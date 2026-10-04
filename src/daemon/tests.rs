@@ -14,6 +14,25 @@ fn daemon() -> Daemon {
     Daemon::new(Config::default())
 }
 
+/// IPC 的调试日志只留"方法名 + 参数的键名":凭据类请求的参数就是明文密钥,而 daemon.log
+/// 是追加打开、永不轮转的(便携安装时就在 exe 旁边),`RUST_LOG=debug` 还正是官方支持的用法。
+#[test]
+fn the_ipc_debug_line_keeps_the_keys_and_drops_the_values() {
+    let summary = summarize_request(
+        r#"{"jsonrpc":"2.0","id":1,"method":"sync.set_master_password","params":{"password":"hunter2","force":true}}"#,
+    );
+    assert!(summary.contains("sync.set_master_password"), "{summary}");
+    assert!(
+        summary.contains("password"),
+        "键名要留着,不然日志没用: {summary}"
+    );
+    assert!(!summary.contains("hunter2"), "密码进了日志: {summary}");
+    assert!(!summary.contains("true"), "参数值不该出现: {summary}");
+
+    assert_eq!(summarize_request(r#"{"method":"status"}"#), "status");
+    assert_eq!(summarize_request("不是 json"), "<不是合法的 JSON>");
+}
+
 #[tokio::test]
 async fn unknown_method_is_reported_as_method_not_found() {
     let reply = daemon()
