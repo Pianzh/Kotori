@@ -39,6 +39,37 @@ fn no_breaks(text: &str) -> String {
     text.replace(['\r', '\n'], "")
 }
 
+/// 云同步那一页的输入框 → 消息。
+///
+/// 下标是 `.slint` 一侧硬写的常数（`field(0, …)` 之类），两边只能靠约定对齐：
+/// 串位不会有编译错误，只会在运行期把内容送进**别的**控件的状态里。所以这里逐个
+/// 数列全，认不出来的下标一律 `None`，由调用方记一笔，不再"兜底成主密码"。
+///
+/// 密钥类字段（applicationKey、主密码、kopia 仓库密码）里空格是密钥的一部分：
+/// 换行只能删掉，不能换成空格（见 [`no_breaks`]）。
+fn sync_field_message(field: i32, text: &str) -> Option<Message> {
+    let text = if matches!(field, 5..=7) {
+        no_breaks(text)
+    } else {
+        one_line(text)
+    };
+    // 6 是主密码、7 是 kopia 仓库密码：两个都不是 `[sync]` 里的设置项，所以都不走
+    // `SyncField`（它们进的是凭据库，不是配置文件）。
+    Some(match field {
+        0 => Message::SyncField(SyncField::Endpoint, text),
+        1 => Message::SyncField(SyncField::Bucket, text),
+        2 => Message::SyncField(SyncField::Prefix, text),
+        3 => Message::SyncField(SyncField::KeepVersions, text),
+        4 => Message::SyncField(SyncField::KeyId, text),
+        5 => Message::SyncField(SyncField::AppKey, text),
+        6 => Message::SyncMasterPasswordChanged(text),
+        7 => Message::SyncKopiaPasswordChanged(text),
+        8 => Message::SyncField(SyncField::RcloneBinary, text),
+        9 => Message::SyncField(SyncField::KopiaBinary, text),
+        _ => return None,
+    })
+}
+
 /// Index → the enum, for the one callback that carries a page number.
 fn tab_at(index: i32) -> Tab {
     match index {
@@ -206,29 +237,11 @@ pub(super) fn install_callbacks(window: &AppWindow) {
     sync_form.on_engine_selected(|engine| {
         dispatch(Message::SyncEngineSelected(engine.to_string()));
     });
-    sync_form.on_field(|field, text| {
-        // 5 是 applicationKey、6 是主密码:那两个里空格会混进密钥,换行必须**删掉**;
-        // 其余都是普通单行文本,换行换成空格即可(见 `one_line`)。
-        let text = if field == 5 || field == 6 {
-            no_breaks(&text)
-        } else {
-            one_line(&text)
-        };
-        // 6 是主密码、7 是 kopia 仓库密码:两个都不是 `[sync]` 里的设置项,
-        // 所以都不走 SyncField(它们进的是凭据库,不是配置文件)。
-        match field {
-            0 => dispatch(Message::SyncField(SyncField::Endpoint, text)),
-            1 => dispatch(Message::SyncField(SyncField::Bucket, text)),
-            2 => dispatch(Message::SyncField(SyncField::Prefix, text)),
-            3 => dispatch(Message::SyncField(SyncField::KeepVersions, text)),
-            4 => dispatch(Message::SyncField(SyncField::KeyId, text)),
-            5 => dispatch(Message::SyncField(SyncField::AppKey, text)),
-            7 => dispatch(Message::SyncKopiaPasswordChanged(text)),
-            // 8/9 是两个引擎的"程序位置"：它们是 `[sync]` 里的设置项，走 SyncField。
-            8 => dispatch(Message::SyncField(SyncField::RcloneBinary, text)),
-            9 => dispatch(Message::SyncField(SyncField::KopiaBinary, text)),
-            _ => dispatch(Message::SyncMasterPasswordChanged(text)),
-        }
+    sync_form.on_field(|field, text| match sync_field_message(field, &text) {
+        Some(message) => dispatch(message),
+        // 认不出来的下标绝不兜底成"主密码"：那正是密码字符被写进 rclone 程序位置、
+        // 而主密码恒为空串的成因。宁可丢掉这一次输入并留下日志。
+        None => tracing::warn!("云同步设置里出现了认不出的字段下标 {field}，这次输入已忽略"),
     });
     sync_form.on_save_kopia_password(|| dispatch(Message::SyncSaveKopiaPassword));
     sync_form.on_save_settings(|| dispatch(Message::SyncSaveSettings));
@@ -346,5 +359,91 @@ mod tests {
     fn no_breaks_deletes_instead_of_replacing() {
         assert_eq!(no_breaks("005a1b2c\r\n"), "005a1b2c");
         assert_eq!(no_breaks("a b"), "a b", "本来就在里面的空格不许动");
+    }
+
+    /// 下标是 `.slint` 与 Rust 两边硬写的常数：串位不会有编译错误。主密码那两个
+    /// 框就曾经发成 8（rclone 程序位置），于是密码字符流进 `rclone_binary`、
+    /// 主密码恒为空串 —— 功能整块不可用，还没有任何报错。每个下标都钉一条。
+    #[test]
+    fn every_sync_field_index_keeps_its_own_control() {
+        fn kind(field: i32, text: &str) -> &'static str {
+            match sync_field_message(field, text) {
+                Some(Message::SyncField(SyncField::Endpoint, _)) => "endpoint",
+                Some(Message::SyncField(SyncField::Bucket, _)) => "bucket",
+                Some(Message::SyncField(SyncField::Prefix, _)) => "prefix",
+                Some(Message::SyncField(SyncField::KeepVersions, _)) => "keep-versions",
+                Some(Message::SyncField(SyncField::KeyId, _)) => "key-id",
+                Some(Message::SyncField(SyncField::AppKey, _)) => "app-key",
+                Some(Message::SyncMasterPasswordChanged(_)) => "master-password",
+                Some(Message::SyncKopiaPasswordChanged(_)) => "kopia-password",
+                Some(Message::SyncField(SyncField::RcloneBinary, _)) => "rclone-binary",
+                Some(Message::SyncField(SyncField::KopiaBinary, _)) => "kopia-binary",
+                Some(_) => "unknown-message",
+                None => "ignored",
+            }
+        }
+        for (field, want) in [
+            (0, "endpoint"),
+            (1, "bucket"),
+            (2, "prefix"),
+            (3, "keep-versions"),
+            (4, "key-id"),
+            (5, "app-key"),
+            (6, "master-password"),
+            (7, "kopia-password"),
+            (8, "rclone-binary"),
+            (9, "kopia-binary"),
+            (10, "ignored"),
+            (-1, "ignored"),
+        ] {
+            assert_eq!(kind(field, "x"), want, "下标 {field} 送错了控件");
+        }
+    }
+
+    /// 主密码与仓库密码里的换行必须**删掉**：Windows 剪贴板是 `\r\n`，换成空格
+    /// 就等于把密钥改坏，而报错会晚到"连不上"那一步。普通字段反过来换成空格。
+    #[test]
+    fn secret_fields_lose_their_line_breaks_instead_of_getting_spaces() {
+        match sync_field_message(6, "hunter\r\n2") {
+            Some(Message::SyncMasterPasswordChanged(text)) => assert_eq!(text, "hunter2"),
+            _ => panic!("下标 6 必须是主密码"),
+        }
+        match sync_field_message(7, "repo\r\npass") {
+            Some(Message::SyncKopiaPasswordChanged(text)) => assert_eq!(text, "repopass"),
+            _ => panic!("下标 7 必须是 kopia 仓库密码"),
+        }
+        match sync_field_message(8, "C:\\tools\\rclone\r\n") {
+            Some(Message::SyncField(SyncField::RcloneBinary, text)) => {
+                assert_eq!(text, "C:\\tools\\rclone ");
+            }
+            _ => panic!("下标 8 必须是 rclone 程序位置"),
+        }
+    }
+
+    /// 下标是 `.slint` 那边**硬写**的，Rust 侧的路由表钉不住它：主密码那两个框
+    /// 发的就是 8（rclone 程序位置），而上面那条测试只看路由表，一路全绿 ——
+    /// 密码字符流进 `rclone_binary`、主密码恒为空串，没有任何测试会红。
+    /// 所以这里直接读 `.slint` 源码，把"哪个框发几号"也钉住。
+    #[test]
+    fn the_master_password_fields_send_field_six() {
+        let credentials = include_str!("slint/pages/sync-credentials.slint");
+        assert_eq!(
+            credentials
+                .matches("text <=> root.master-password;")
+                .count(),
+            2,
+            "主密码输入框的数量变了（解锁 / 设置新密码），这条测试要跟着改"
+        );
+        assert_eq!(
+            credentials
+                .matches("edited(text) => { root.field(6, text); }")
+                .count(),
+            2,
+            "主密码框必须发 6：发 8 等于把密码字符写进 rclone 程序位置"
+        );
+        assert!(
+            !credentials.contains("root.field(8"),
+            "8 是 rclone 程序位置，不该出现在凭据页"
+        );
     }
 }
