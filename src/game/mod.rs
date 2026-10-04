@@ -124,10 +124,15 @@ pub fn add_games(
 ) -> Vec<(String, GameConfig)> {
     let mut added = Vec::new();
     for game in found {
+        // ⚠ 用 `util::same_file`(它同时管 canonicalize 与 Windows 上的大小写折叠),
+        // 而不是逐段比 `Path`:同一个 exe 在 Windows 上写成 `C:\Games\Game.exe` 与
+        // `c:\games\game.exe` 是**同一个文件**,逐段比会判成两个 ⇒ 库里多出一条永远
+        // 打不开同一款游戏的档案。同一个仓里"是不是同一个 exe"从前有三套标准
+        // (字面相等 / canonicalize / same_file),这里收敛到一套。
         if config.games.values().any(|existing| {
             existing
                 .resolved_exe()
-                .is_ok_and(|exe| exe == game.exe_path)
+                .is_ok_and(|exe| crate::util::same_file(&exe, &game.exe_path))
         }) {
             continue;
         }

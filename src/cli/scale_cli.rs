@@ -134,12 +134,23 @@ fn print_scale_status(
         );
 
         // 观测会话没有 gamescope 可问 —— 如实说,别拿档案里的值冒充"现在"。
-        if session["gamescope_pid"].is_null() {
+        // ⚠ `watch_only` 也要看:直启的观测会话 `gamescope_pid` 是有值的(那是游戏自己的
+        // pid),只看 null 会漏掉它们。
+        if session["gamescope_pid"].is_null() || session["watch_only"].as_bool().unwrap_or(false) {
             println!("      仅观测（watch_only）：kotori 没有它的 gamescope 可调");
             continue;
         }
         let params = Some(rpc::params([("session_id", serde_json::json!(id))]));
-        let live = call_daemon(rt, socket, "scale.get_status", params)?;
+        // ⚠ 这一问在 Windows 上**必然**失败(那边根本没有可读的缩放后端),从前它会把
+        // 后端那句英文错误抛出去、让整条 `kotori scale status` 以非 0 退出 —— 一个
+        // 主平台上每次执行都失败的命令。那不是故障,是"这台机器没有可读的状态"。
+        let live = match call_daemon(rt, socket, "scale.get_status", params) {
+            Ok(live) => live,
+            Err(error) => {
+                println!("      现在：读不到（{error}）");
+                continue;
+            }
+        };
         match live["live"].as_object() {
             Some(live) => println!(
                 "      现在：滤镜 {} / 缩放器 {} / 锐度 {}",

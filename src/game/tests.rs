@@ -194,6 +194,25 @@ fn game_config_named(name: &str) -> crate::config::GameConfig {
     }
 }
 
+/// 同一个 exe 换个写法不该加出第二条档案:两条会指向同一款游戏,而云端版本历史是按
+/// id 分开存的。从前这里逐段比 `Path`,把 `dir/./Game.exe` 与 `dir/Game.exe` 判成两个。
+#[test]
+fn the_same_exe_spelled_differently_is_not_added_twice() {
+    let dir = TempDir::new("dedupe-exe");
+    let exe = dir.path().join("Game.exe");
+    std::fs::write(&exe, b"").unwrap();
+
+    let mut config = crate::config::Config::default();
+    let mut absolute = game_config_named("Game");
+    absolute.exe_path = exe.clone();
+    let mut roundabout = game_config_named("Game");
+    roundabout.exe_path = dir.path().join(".").join("Game.exe");
+
+    assert_eq!(add_games(&mut config, vec![absolute]).len(), 1);
+    let added = add_games(&mut config, vec![roundabout]);
+    assert!(added.is_empty(), "同一个 exe 不该加出第二条: {added:?}");
+}
+
 /// Windows 上 `GAME.EXE` 和 `game.exe` 是同一个文件，扩展名比较必须大小写不敏感。
 /// 逐字节比会让中文重打包里常见的 `ADVcore.EXE` / `SiglusEngineCHS.EXE` 整款游戏
 /// 被静默漏掉 —— 退出码还是 0，用户只能一条条手填。

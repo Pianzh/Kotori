@@ -129,13 +129,19 @@ impl Daemon {
             },
             "scale.adjust_sharpness" => match param_str(&req.params, "session_id") {
                 Ok(sid) => {
-                    let delta = req
-                        .params
-                        .as_ref()
-                        .and_then(|p| p.get("delta"))
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0) as i32;
-                    respond(id, self.rpc_scale_adjust_sharpness(sid, delta).await)
+                    // ⚠ 不许 `as i32`:2^31 会回绕成负数,方向直接反过来(用户要"大幅调锐",
+                    // 实际收到"调软 20 步");类型不对时 `unwrap_or(0)` 又会报"步长不能为 0",
+                    // 把错误指到别的地方。越界与类型不对都按"参数无效"报。
+                    let delta = match req.params.as_ref().and_then(|p| p.get("delta")) {
+                        None => Some(0),
+                        Some(value) => value.as_i64().and_then(|v| i32::try_from(v).ok()),
+                    };
+                    match delta {
+                        Some(delta) => {
+                            respond(id, self.rpc_scale_adjust_sharpness(sid, delta).await)
+                        }
+                        None => rpc_err(id, -32602, "锐度步长必须是 32 位整数".to_string()),
+                    }
                 }
                 Err(e) => rpc_err(id, -32602, e),
             },

@@ -6,6 +6,9 @@ use serde_json::{Value, json};
 use super::protocol::{GamePatch, NewGame};
 use super::*;
 
+/// 游戏名的上限（按字符）。名字会变成 id，再变成云端路径的一段 —— 见 `rpc_game_create`。
+const MAX_GAME_NAME_CHARS: usize = 128;
+
 impl Daemon {
     /// Create a library entry from explicit user input (the manual add path —
     /// no scanning heuristics involved).
@@ -13,6 +16,12 @@ impl Daemon {
         let name = new_game.name.trim().to_string();
         if name.is_empty() {
             return Err("名称不能为空".to_string());
+        }
+        // ⚠ 名字会变成 id,而 id 会**原样**进云端路径(`games/<id>`)与桶里的对象名。
+        // 一个 5000 字符的名字会直接顶穿 S3/rclone 单段上限,同步必失败,而且失败得很晚
+        // (打包都做完了)。这里按**字符**数拦,与 UI 的 `chars().count()` 同一把尺子。
+        if name.chars().count() > MAX_GAME_NAME_CHARS {
+            return Err(format!("名称太长（最多 {MAX_GAME_NAME_CHARS} 个字符）"));
         }
         for mount in [&new_game.game_dir_mount, &new_game.exe_mount]
             .into_iter()

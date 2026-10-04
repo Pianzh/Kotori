@@ -51,6 +51,40 @@ async fn malformed_json_is_a_parse_error() {
     assert_eq!(value["error"]["code"], -32700);
 }
 
+/// 名字会成为 id,再变成云端路径的一段 —— 超长名字必须在**建档案**这一步就被拦住,
+/// 而不是等打包完整、上传时才失败(那已经是几分钟之后,而且错误信息还指不到名字上)。
+#[tokio::test]
+async fn a_game_name_that_is_too_long_is_refused() {
+    let long = "x".repeat(1000);
+    let reply = daemon()
+        .handle_request(&format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"game.create","params":{{"name":"{long}","exe_path":"/bin/true"}}}}"#
+        ))
+        .await;
+    let value: Value = serde_json::from_str(&reply.body).unwrap();
+    assert!(
+        value["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("名称太长"),
+        "{value}"
+    );
+}
+
+/// 2^31 从前会被 `as i32` 回绕成负数:用户要"大幅调锐",实际收到"调软 20 步"。
+#[tokio::test]
+async fn a_sharpness_delta_that_does_not_fit_is_invalid_params() {
+    for delta in ["2147483648", "-2147483649"] {
+        let reply = daemon()
+            .handle_request(&format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"scale.adjust_sharpness","params":{{"session_id":"ghost","delta":{delta}}}}}"#
+            ))
+            .await;
+        let value: Value = serde_json::from_str(&reply.body).unwrap();
+        assert_eq!(value["error"]["code"], -32602, "{delta}: {value}");
+    }
+}
+
 #[tokio::test]
 async fn wrong_jsonrpc_version_is_rejected() {
     let reply = daemon()

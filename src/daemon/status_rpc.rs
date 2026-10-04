@@ -206,6 +206,21 @@ impl Daemon {
     pub(super) async fn rpc_reload_config(&self) -> Result<Value, String> {
         let path = self.config_path.read().await.clone();
         let new_config = crate::config::load_at(&path).map_err(|e| e.to_string())?;
+        // ⚠ socket 路径**不能热改**:客户端每次都从磁盘重算路径去连,而守护进程已经绑着
+        // 旧的 —— 一改就全体失联,连 `reload` 自己也发不出去(它得先连上才能发请求),
+        // 用户只能手改文件或杀进程。所以这里当场拒绝,而不是让它静默失联。
+        {
+            let current = self.config.read().await;
+            let old = crate::config::resolve_socket(&current);
+            let new = crate::config::resolve_socket(&new_config);
+            if old != new {
+                return Err(format!(
+                    "socket 路径不能热改（{} → {}），改了要重启守护进程",
+                    old.display(),
+                    new.display()
+                ));
+            }
+        }
         *self.config.write().await = new_config;
         // CLI 要报"重读进来多少款"：从前这里只回 `success`，`kotori reload` 于是
         // 永远印 0 款（BUG-11），用户会以为手改的配置没生效。
