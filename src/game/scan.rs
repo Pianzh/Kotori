@@ -133,7 +133,13 @@ pub(super) fn pick_game_exe(dir: &Path) -> Option<PathBuf> {
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let p = entry.path();
-            if p.extension().map(|e| e == "exe").unwrap_or(false) {
+            // 扩展名必须大小写不敏感地比：Windows 上 `GAME.EXE` 与 `game.exe` 是同一个
+            // 文件，而中文重打包的整合包里 `ADVcore.EXE` / `SiglusEngineCHS.EXE` 很常见。
+            // 逐字节比会把整款游戏静默漏掉（scan 退出码还是 0）。
+            if p.extension()
+                .map(|e| e.eq_ignore_ascii_case("exe"))
+                .unwrap_or(false)
+            {
                 let stem = p
                     .file_stem()
                     .unwrap_or_default()

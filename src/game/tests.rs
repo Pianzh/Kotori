@@ -194,6 +194,27 @@ fn game_config_named(name: &str) -> crate::config::GameConfig {
     }
 }
 
+/// Windows 上 `GAME.EXE` 和 `game.exe` 是同一个文件，扩展名比较必须大小写不敏感。
+/// 逐字节比会让中文重打包里常见的 `ADVcore.EXE` / `SiglusEngineCHS.EXE` 整款游戏
+/// 被静默漏掉 —— 退出码还是 0，用户只能一条条手填。
+#[test]
+fn an_uppercase_exe_extension_is_still_a_game() {
+    let root = TempDir::new("scan-upper-ext");
+    for (dir, exe) in [
+        ("UpperExt", "GAME.EXE"),
+        ("MixedExt", "SiglusEngineCHS.Exe"),
+        ("LowerExt", "game.exe"),
+    ] {
+        std::fs::create_dir_all(root.path().join(dir)).unwrap();
+        std::fs::write(root.path().join(dir).join(exe), b"").unwrap();
+    }
+
+    let found = scan(&root.path()).unwrap();
+    let mut names: Vec<&str> = found.iter().map(|game| game.name.as_str()).collect();
+    names.sort_unstable();
+    assert_eq!(names, ["LowerExt", "MixedExt", "UpperExt"], "{found:?}");
+}
+
 #[test]
 fn scan_counts_subdirectories_and_the_root_itself() {
     let root = TempDir::new("scan-root");
