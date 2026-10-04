@@ -24,6 +24,7 @@ import { CardRow, Group, SectionTitle } from "../widgets/card.slint";
 import { AccentButton, StdButton } from "../widgets/buttons.slint";
 import { ConfirmDialog } from "../widgets/confirm-dialog.slint";
 import { CloudVersionItem } from "../types.slint";
+import { SyncBannerBoard, SyncBannerCard } from "../widgets/sync-banner.slint";
 
 export global GameVersionsBoard {
     in-out property <bool> open: false;
@@ -107,6 +108,14 @@ export component GameVersionsPage inherits Rectangle {
                     overflow: elide;
                     vertical-alignment: center;
                 }
+            }
+
+            // ── 横幅（§6.8 A 的第二处：这一款的云存档页）────────────────────
+            // 进这一页时由 Rust **异步**问一次 `sync.snapshot`，算的过程中写「正在核对…」；
+            // 这块内容与单游戏设置页那块是同一个组件、同一份状态（`SyncBannerBoard`）。
+            if SyncBannerBoard.game-id != "" : VerticalLayout {
+                padding-bottom: 12px;
+                SyncBannerCard { }
             }
 
             // ── 云端存了哪几版（这一页的主角，排在最上面）──────────────────

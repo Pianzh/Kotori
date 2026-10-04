@@ -1,0 +1,132 @@
+// 横幅：三方的"现在长什么样"（PLATFORMS.md §6.8 A）—— 两处页面共用一块。
+//
+// 两处：① 单游戏设置页的「云存档」组；② 这一款那一页「云端存档」（`game-versions.slint`）。
+// 两页各自把 `game-id` 交给 `SyncBannerBoard`，Rust 那一侧进页面时**异步**问一次
+// `sync.snapshot`：算的过程中显示「正在核对…」，算完再填那四行（§6.8 A 的原话是
+// "不要点进去之前先算 —— 那会卡住页面"，用户 2026-10-04）。
+//
+// ⚠ 四行文案**全在 Rust 里拼好**（`ui::model::banner`）：条数与措辞都是要被测的
+// （§6.9 的四条文案），放进 `.slint` 就测不到了。
+
+import { Tokens } from "../theme.slint";
+import { StdButton } from "buttons.slint";
+
+export global SyncBannerBoard {
+    /// 这一份说的是哪一款。空 = 现在不显示横幅（页面上没有对应的一款）。
+    in-out property <string> game-id: "";
+    /// 回包还没到 —— 界面上写「正在核对…」。
+    in-out property <bool> loading: false;
+    /// 问不成的原因（连不上 daemon 之类）。空 = 没事。
+    in-out property <string> error: "";
+    in-out property <string> local-line: "";
+    in-out property <string> cloud-line: "";
+    in-out property <string> baseline-line: "";
+    in-out property <string> next-line: "";
+    /// 冲突或本地为空：那几行用警示色（§6.8 A）。
+    in-out property <bool> warning: false;
+    /// 索引过期而且刷新失败时那句话（§6.11 第 2 条：**只有**这一种情况才提示）。
+    /// 空串 = 不画。
+    in-out property <string> stale-note: "";
+
+    /// 核对失败时那颗「重新核对」（没有它，"连不上 daemon"那一态就没有出路）。
+    callback retry_requested();
+}
+
+// 名字只为**测试**量得到（同 `confirm-dialog.slint` 的 `DialogCard`）：`ElementHandle`
+// 只按类型名查，而单游戏设置页里 `Rectangle` 有一堆。
+component BannerFrame inherits Rectangle { }
+
+export component SyncBannerCard inherits Rectangle {
+    // 没有东西可画时**整块都不在树里**（`height: 0` 也照样会被量到，测试就白写了）。
+    visible: SyncBannerBoard.game-id != "" && (SyncBannerBoard.loading
+        || SyncBannerBoard.error != ""
+        || SyncBannerBoard.local-line != "");
+
+    height: body.preferred-height;
+    background: #00000000;
+
+    body := VerticalLayout {
+        spacing: 0px;
+
+        // 出错（连不上 daemon / 没配齐）：如实说，**不画那四行** —— 画一半只会让用户以为
+        // 另外那一半是"没问题"。
+        if SyncBannerBoard.error != "" && !SyncBannerBoard.loading : Rectangle {
+            height: error-frame.preferred-height;
+            background: Tokens.card;
+            border-radius: Tokens.radius-card;
+            border-width: 1px;
+            border-color: Tokens.stroke;
+            error-frame := VerticalLayout {
+                padding: 12px;
+                spacing: 8px;
+                error-layout := Text {
+                    text: "云存档核对失败：" + SyncBannerBoard.error;
+                    font-size: 12px;
+                    color: Tokens.danger;
+                    wrap: word-wrap;
+                }
+                StdButton {
+                    label: "重新核对";
+                    button-width: 92px;
+                    clicked => { SyncBannerBoard.retry_requested(); }
+                }
+            }
+        }
+
+        if !(SyncBannerBoard.error != "" && !SyncBannerBoard.loading) : BannerFrame {
+            width: 100%;
+            height: frame.preferred-height;
+            background: Tokens.card;
+            border-radius: Tokens.radius-card;
+            border-width: 1px;
+            border-color: Tokens.stroke;
+
+            frame := VerticalLayout {
+                padding: 12px;
+                spacing: 4px;
+
+                if SyncBannerBoard.loading : Text {
+                    text: "正在核对…";
+                    font-size: 12px;
+                    color: Tokens.text-3;
+                }
+
+                if !SyncBannerBoard.loading : VerticalLayout {
+                    spacing: 4px;
+                    Text {
+                        text: SyncBannerBoard.local-line;
+                        font-size: 12px;
+                        // 冲突 / 本地为空那一行（以及它下面那几行，它们说的是同一件事）用警示色。
+                        color: SyncBannerBoard.warning ? Tokens.warn : Tokens.text-2;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: SyncBannerBoard.cloud-line;
+                        font-size: 12px;
+                        color: SyncBannerBoard.warning ? Tokens.warn : Tokens.text-2;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: SyncBannerBoard.baseline-line;
+                        font-size: 12px;
+                        color: Tokens.text-3;
+                        wrap: word-wrap;
+                    }
+                    Text {
+                        text: SyncBannerBoard.next-line;
+                        font-size: 12px;
+                        color: SyncBannerBoard.warning ? Tokens.warn : Tokens.text-2;
+                        wrap: word-wrap;
+                    }
+                    // 只有"过期且刷新失败"才画这一行（§6.11 第 2 条）。
+                    if SyncBannerBoard.stale-note != "" : Text {
+                        text: SyncBannerBoard.stale-note;
+                        font-size: 11px;
+                        color: Tokens.danger;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}

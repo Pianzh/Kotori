@@ -15,6 +15,7 @@ use super::*;
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 use add::push_add;
+use banner::push_sync_banner;
 use cloud::push_cloud;
 use cloud_version::push_cloud_version;
 use confirm::{
@@ -27,6 +28,7 @@ use sync::{push_sync, push_sync_ask};
 use versions::push_versions;
 
 mod add;
+mod banner;
 mod cloud;
 mod cloud_version;
 mod confirm;
@@ -54,6 +56,7 @@ pub(super) fn render(ui: &mut Ui) {
     push_cloud(ui);
     push_cloud_version(ui);
     push_sync_ask(ui);
+    push_sync_banner(ui);
     push_versions(ui);
     push_settings(ui);
 }

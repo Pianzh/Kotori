@@ -14,6 +14,15 @@ import { AccentButton, StdButton } from "buttons.slint";
 
 export global SyncAskState {
     in-out property <bool> open: false;
+    /// 这一问是哪一种（用户 2026-10-04 定：冲突弹窗**复用**这一套机制，见 §6.8 B）：
+    ///   * `cloud`（默认）= 启动前自检认不出云端那一条；
+    ///   * `conflict` = **本地和云端都改过**，要用户在三个后果里选一个。
+    /// ⚠ 两副按钮各画各的：混着画会让用户在"配对"与"谁覆盖谁"之间挑错东西。
+    in-out property <string> mode: "cloud";
+    /// 冲突弹窗那三颗按钮（§6.8 B）：
+    ///   * `use_cloud` 用云端覆盖本机 / `keep_local` 保留本机（结束后上传）/
+    ///   * `later` 稍后再说（本次不拉也不传，游戏照常启动）。
+    callback conflict-resolved(string);
     /// 这一款叫什么。
     in-out property <string> game-name: "";
     /// 一句话说明。空串 = 什么都别说。
@@ -89,7 +98,9 @@ export component SyncAskDialog inherits Rectangle {
                 spacing: 10px;
 
                 Text {
-                    text: "这一款在云端对不上号";
+                    text: SyncAskState.mode == "conflict"
+                        ? "本地和云端都改过"
+                        : "这一款在云端对不上号";
                     font-size: 16px;
                     font-weight: 600;
                     color: Tokens.text;
@@ -100,8 +111,18 @@ export component SyncAskDialog inherits Rectangle {
                     color: Tokens.text-2;
                 }
 
+                // 冲突模式下那句话说的是"两边都改了"，与配对那三种说法是两回事
+                // （那三种说的是"云端有没有像的"）。
+                if SyncAskState.mode == "conflict" : Text {
+                    text: SyncAskState.message;
+                    font-size: 12px;
+                    color: Tokens.danger;
+                    wrap: word-wrap;
+                }
+
                 // 疑似找到的那一条：名字与摘要由 `identity_label` 生成（与单游戏页同一个函数）。
-                if SyncAskState.cloud-found : Rectangle {
+                // ⚠ 冲突模式不画它：那一块说的是"云端哪一条像本机"，与"谁覆盖谁"无关。
+                if SyncAskState.cloud-found && SyncAskState.mode != "conflict" : Rectangle {
                     background: Tokens.card;
                     border-color: Tokens.stroke;
                     border-width: 1px;
@@ -125,7 +146,7 @@ export component SyncAskDialog inherits Rectangle {
                     }
                 }
 
-                Text {
+                if SyncAskState.mode != "conflict" : Text {
                     text: SyncAskState.message;
                     font-size: 12px;
                     color: Tokens.text-3;
@@ -135,41 +156,71 @@ export component SyncAskDialog inherits Rectangle {
                 // **没读到云端**时把原因原样说出来（一般是引擎的原话，可能很长，所以单独
                 // 一块、可折行）。它与上面那句是两回事：上面说"认不出来"，这里说"为什么
                 // 认不出来" —— 用户照这句话就知道该去改桶名还是去查网络。
-                if SyncAskState.cloud-trouble != "" : Text {
+                if SyncAskState.cloud-trouble != "" && SyncAskState.mode != "conflict" : Text {
                     text: SyncAskState.cloud-trouble;
                     font-size: 11px;
                     color: Tokens.danger;
                     wrap: word-wrap;
                 }
 
-                // "疑似找到"时第一颗是**确定**的动作：就绑这一条 —— 没有模糊的"没问题"
-                // （用户 2026-09-24："不允许没问题出现，我们要么处理好存档问题，要么就直接
-                // 关掉存档"）。
-                if SyncAskState.cloud-found : AccentButton {
-                    label: "就绑这一条";
-                    button-width: parent.width;
-                    clicked => { SyncAskState.bind-found(); }
+                // ── 配对那一副（认不出云端那一条时）────────────────────────────
+                if SyncAskState.mode != "conflict" : VerticalLayout {
+                    spacing: 10px;
+                    // "疑似找到"时第一颗是**确定**的动作：就绑这一条 —— 没有模糊的"没问题"
+                    // （用户 2026-09-24："不允许没问题出现，我们要么处理好存档问题，要么就直接
+                    // 关掉存档"）。
+                    if SyncAskState.cloud-found : AccentButton {
+                        label: "就绑这一条";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.bind-found(); }
+                    }
+                    StdButton {
+                        label: "自己挑一条绑上…";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.pair_requested(); }
+                    }
+                    StdButton {
+                        label: "给这一款新建一条";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.answered("pair"); }
+                    }
+                    StdButton {
+                        label: "暂时关掉云同步";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.answered("off"); }
+                    }
+                    Text {
+                        text: "选哪一条都会开始游戏。关掉之后想再打开，去这一款的设置页。";
+                        font-size: 11px;
+                        color: Tokens.text-3;
+                        wrap: word-wrap;
+                    }
                 }
-                StdButton {
-                    label: "自己挑一条绑上…";
-                    button-width: parent.width;
-                    clicked => { SyncAskState.pair_requested(); }
-                }
-                StdButton {
-                    label: "给这一款新建一条";
-                    button-width: parent.width;
-                    clicked => { SyncAskState.answered("pair"); }
-                }
-                StdButton {
-                    label: "暂时关掉云同步";
-                    button-width: parent.width;
-                    clicked => { SyncAskState.answered("off"); }
-                }
-                Text {
-                    text: "选哪一条都会开始游戏。关掉之后想再打开，去这一款的设置页。";
-                    font-size: 11px;
-                    color: Tokens.text-3;
-                    wrap: word-wrap;
+
+                // ── 冲突那一副（§6.8 B）：三个后果，三颗按钮 ──────────────────
+                if SyncAskState.mode == "conflict" : VerticalLayout {
+                    spacing: 10px;
+                    AccentButton {
+                        label: "用云端覆盖本机";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.conflict-resolved("use_cloud"); }
+                    }
+                    StdButton {
+                        label: "保留本机（结束后上传）";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.conflict-resolved("keep_local"); }
+                    }
+                    StdButton {
+                        label: "稍后再说";
+                        button-width: parent.width;
+                        clicked => { SyncAskState.conflict-resolved("later"); }
+                    }
+                    Text {
+                        text: "「用云端覆盖本机」现在就把云端那一版铺回来，铺完你自己按启动；另外两个都会立刻开始游戏。选「保留本机」这一局结束时会自动上传；选「稍后再说」这一次不拉也不传，下次启动再问。";
+                        font-size: 11px;
+                        color: Tokens.text-3;
+                        wrap: word-wrap;
+                    }
                 }
             }
         }

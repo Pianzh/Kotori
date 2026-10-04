@@ -401,27 +401,9 @@ impl App {
                     }
                 }
             }
-            Message::SyncRestoreRequested(game_id, version) => {
-                self.sync_restore_pending = Some((game_id, version));
-                Task::none()
-            }
-            Message::SyncRestoreCancelled => {
-                self.sync_restore_pending = None;
-                Task::none()
-            }
-            Message::SyncRestoreConfirmed => {
-                let Some((game_id, version)) = self.sync_restore_pending.take() else {
-                    return Task::none();
-                };
-                self.sync_form.busy = true;
-                self.sync_form.msg = Some(FormMsg::ok("正在恢复…"));
-                let socket = self.daemon_socket.clone();
-                self.activity(
-                    "取回存档",
-                    async move { sync_restore(&socket, &game_id, version.as_deref()).await },
-                    Message::SyncNowDone,
-                )
-            }
+            // 「恢复」那两颗（`SyncRestoreRequested` / `Cancelled` / `Confirmed`）与冲突弹窗
+            // 都在 `update_banner` 里 —— 那条线管的是"三方状态与要用户拍板的那一问"，
+            // 这里只留真正搬存档的那几个动作（见 `update/banner.rs` 的文件头）。
             // 委派是按变体名精确列的：漏一个就会走到这里，测试会立刻炸。
             other => unreachable!("update_sync 收到了不该由它处理的消息: {other:?}"),
         }

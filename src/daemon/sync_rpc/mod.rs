@@ -49,6 +49,10 @@ pub(super) struct SyncState {
     /// 「本次启动前跟云端对上过账」的账本（PLATFORMS.md §6.6 闸门 b）：退出上传那道闸门与
     /// `sync.status` 都读它（一处记账、两处看同一份）；立/撤的时机写在 [`LaunchSync`] 头上。
     launch_sync: LaunchSync,
+    /// 本机内容值的登记簿（§6.8 A 的横幅要显示"本机 digest 前 8 位"，而 §6.1/§6.4 又要求
+    /// 平时绝不读存档内容 —— 所以只有真的算过一次才记在这里，见
+    /// [`crate::sync::digest_cache`] 与 `sync_rpc::banner` 的文件头）。
+    digests: crate::sync::digest_cache::DigestCache,
 }
 
 /// 两个凭据文件的位置:主密码加密的那份,与默认的明文那份。它们永远是同一目录
@@ -84,6 +88,7 @@ impl SyncState {
             }),
             records: Mutex::new(HashMap::new()),
             launch_sync: LaunchSync::new(),
+            digests: crate::sync::digest_cache::DigestCache::new(),
         }
     }
 
@@ -473,6 +478,7 @@ fn clean_prefix(value: &str) -> Result<String, String> {
 }
 
 mod actions;
+mod banner;
 mod credentials;
 mod delete;
 mod exit_upload;

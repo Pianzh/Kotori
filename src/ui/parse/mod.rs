@@ -23,7 +23,10 @@ mod save_paths;
 mod scale;
 mod sync;
 mod wine;
+// 横幅那一份 `sync.snapshot`（§6.8 A）：它同时读本机、云端与基线，所以不属于上面任何一族。
+mod banner;
 
+pub(super) use banner::*;
 pub(super) use cloud::*;
 pub(super) use environment::*;
 pub(super) use games::*;

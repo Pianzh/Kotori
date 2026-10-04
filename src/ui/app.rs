@@ -133,8 +133,18 @@ pub struct App {
     /// Settings tab: cloud sync.
     pub(super) sync_status: Option<SyncStatus>,
     pub(super) sync_form: SyncForm,
-    /// Restore waiting for a second click: (game id, snapshot).
-    pub(super) sync_restore_pending: Option<(String, Option<String>)>,
+    /// Restore waiting for a second click: `(game id, snapshot, 本机偏离基线了吗)`。
+    ///
+    /// 第三个字段是 §6.7 第 1 条那条前置提示：偏了的话，确认那句话要说清"本机有未同步的
+    /// 改动，恢复会覆盖它"（判据只按 mtime，见 `model::banner::local_drifted`）。
+    pub(super) sync_restore_pending: Option<(String, Option<String>, bool)>,
+    /// 横幅（§6.8 A）：三方现在长什么样。进页面时置成「正在核对…」，回包到了再填。
+    pub(super) sync_banner: SyncBanner,
+    /// 冲突弹窗（§6.8 B）那一问：哪一款、以及它说的那一类冲突（`conflict_code`）。
+    ///
+    /// `None` = 不画。⚠ 它与 [`Self::sync_ask`] **共用同一个浮层**（`SyncAskState`，
+    /// §6.8 B 的原话是"复用 SyncAskState 那套机制"），`mode` 决定画哪一套按钮。
+    pub(super) sync_conflict: Option<String>,
     /// 单游戏页那一页「这一款的云端存档」：云端有哪几版 + 替换的二次确认
     /// （`model::versions`）。它跟着 `game-open` 走，所以不是"另一页"而是一层覆盖。
     pub(super) versions: VersionsState,
@@ -208,6 +218,8 @@ impl App {
                 sync_status: None,
                 sync_form: SyncForm::default(),
                 sync_restore_pending: None,
+                sync_banner: SyncBanner::default(),
+                sync_conflict: None,
                 versions: VersionsState::default(),
             },
             Task::batch([

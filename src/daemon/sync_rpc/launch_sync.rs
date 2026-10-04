@@ -85,6 +85,15 @@ impl LaunchSync {
             .map(|settled| settled.contains(game_id))
             .unwrap_or(false)
     }
+
+    /// 「保留本机」那条后果（§6.8 B ②）：**什么都不拉**，只把牌子立起来。
+    ///
+    /// 用户 2026-10-04 定的原话是"只把'本次允许上传'的牌子立起来 ⇒ 退出时上传"。
+    /// 所以它与 [`Self::settle`] 是同一件事的两种说法 —— 这一层刻意留一个名字，
+    /// 好让"谁把它立起来的"在调用点上看得出来（判定那条路立牌子 vs 用户在冲突弹窗里选的）。
+    pub(in crate::daemon) fn allow_upload(&self, game_id: &str) {
+        self.settle(game_id);
+    }
 }
 
 impl Daemon {
@@ -180,9 +189,20 @@ impl Daemon {
         // §6.4：第 7 格（mtime 与基线一模一样、云端却偏离了基线）—— **唯一**为了判定
         // 读一次存档内容的地方。读完带着 `Some(digest)` 再判一次：那时只会给出
         // `Pull`（本机确实没动）或 `Ask(BothChanged)`（mtime 骗人，本机其实改了）。
+        //
+        // ⚠ 先问一句登记簿（`digest_cache`）：**同一个 mtime 下**这个值不用重算 —— 刚同步过
+        //    的机器上，重启与冷却都不会变成"再读一遍整个存档"。登记簿里没有才真读一遍。
         if let Decision::Confirm { .. } = decision {
-            match archive::local_digest(targets) {
+            let cached = self.sync.digests.get(game_id, mtime_ms);
+            let computed = match cached {
+                Some(digest) => Ok(digest),
+                None => archive::local_digest(targets),
+            };
+            match computed {
                 Ok(digest) => {
+                    // 记下来：横幅（§6.8 A）与本款下一次对账都要用它，而它只在
+                    // "真的算过"之后才有值。
+                    self.sync.digests.remember(game_id, &digest, mtime_ms);
                     local_digest = Some(digest);
                     decision = decision::decide(
                         &LocalState {
@@ -356,6 +376,9 @@ impl Daemon {
             tracing::warn!("{game_id}: 取回之后 stat 本机存档失败（基线里记 0）: {error}");
             0
         });
+        // 铺下去的**就是** `expected` 那一版的内容 ⇒ 本机现在的内容值就是它。记进登记簿：
+        // 横幅（§6.8 A）因此不必为了显示它再读一遍存档（见 `sync::digest_cache`）。
+        self.sync.digests.remember(game_id, &expected, mtime_ms);
         if let Err(error) =
             baseline::save(game_id, &Baseline::new(stamp.clone(), expected, mtime_ms))
         {
@@ -390,6 +413,9 @@ impl Daemon {
             tracing::warn!("{game_id}: 上传后 stat 本机存档失败（基线里记 0）: {error}");
             0
         });
+        // 刚上云的就是**本机这一版**（打包时算出来的那个值）⇒ 登记簿跟着走，
+        // 横幅（§6.8 A）于是不必为了显示"本机的内容值"再读一遍存档。
+        self.sync.digests.remember(game_id, digest, mtime_ms);
         if let Err(error) = baseline::save(game_id, &Baseline::new(stamp, digest, mtime_ms)) {
             tracing::warn!("{game_id}: 上传成功但基线没写下去（下次启动会重新核对）: {error}");
         }

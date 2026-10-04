@@ -60,6 +60,17 @@ impl App {
             .is_some_and(|session| !session.watch_only)
     }
 
+    /// 再起一次这一款（`launching` 上已经记着是哪一款）。
+    ///
+    /// 两个入口用它：冲突弹窗选了「保留本机」之后（牌子立好了再起），以及「稍后再说」
+    /// （本次不拉也不传，游戏照常启动，§6.8 B ③）。
+    pub(super) fn launch_again(&mut self) -> Task<Message> {
+        let Some(id) = self.launching.clone() else {
+            return Task::none();
+        };
+        self.launch_game(id)
+    }
+
     /// 启动一款游戏:`launching` 立刻立起来(按钮随即变成灰的),等 daemon 回话。
     fn launch_game(&mut self, id: String) -> Task<Message> {
         // 上一款留下的那次"等确认"不许落到这一款身上。

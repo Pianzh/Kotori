@@ -156,6 +156,12 @@ impl Daemon {
                 (Err(e), _) | (_, Err(e)) => rpc_err(id, -32602, e),
             },
             "sync.status" => respond(id, self.rpc_sync_status().await),
+            // 横幅（§6.8 A）：页面进去之后**异步**问一次"三方现在长什么样"。只读，
+            // 不读存档内容（本机的内容值只从登记簿里取），云端只读本机缓存那份索引。
+            "sync.snapshot" => match param_str(&req.params, "id") {
+                Ok(game_id) => respond(id, self.rpc_sync_snapshot(game_id).await),
+                Err(e) => rpc_err(id, -32602, e),
+            },
             "sync.set_settings" => {
                 match serde_json::from_value::<sync_rpc::SettingsPatch>(Value::Object(
                     req.params.clone().unwrap_or_default(),
@@ -229,6 +235,12 @@ impl Daemon {
             // 本机 id —— 云端有而本机没有的游戏也要能列出它的版本。
             "sync.cloud_versions" => match param_str(&req.params, "key") {
                 Ok(cloud_key) => respond(id, self.rpc_sync_cloud_versions(cloud_key).await),
+                Err(e) => rpc_err(id, -32602, e),
+            },
+            // 冲突弹窗（§6.8 B）：「保留本机（结束后上传）」——**什么都不拉**，只把
+            // "本次允许上传"的牌子立起来（用户 2026-10-04 定的后果）。
+            "sync.allow_upload" => match param_str(&req.params, "id") {
+                Ok(game_id) => respond(id, Ok(self.rpc_sync_allow_upload(game_id))),
                 Err(e) => rpc_err(id, -32602, e),
             },
             // 添加游戏时那一问：这个 exe 在云端是哪一款（读索引，只读不写）。

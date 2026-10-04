@@ -212,6 +212,7 @@ mod tests {
         // 只点「替换」不会动任何东西：只记下是哪一版。
         state.requested(Confirmation::Replace {
             version: "20260911T101500Z".into(),
+            drifted: false,
         });
         assert!(state.pending().is_some());
         assert!(!state.busy, "确认之前不该在路上");
@@ -227,13 +228,15 @@ mod tests {
         state.opened("demo", "key");
         state.requested(Confirmation::Replace {
             version: "20260911T101500Z".into(),
+            drifted: false,
         });
 
         let action = state.confirmed().expect("有待确认的那一版");
         assert_eq!(
             action,
             Confirmation::Replace {
-                version: "20260911T101500Z".into()
+                version: "20260911T101500Z".into(),
+                drifted: false,
             }
         );
         assert!(state.busy && state.ok, "确认之后进入忙");
@@ -247,11 +250,13 @@ mod tests {
 
         state.requested(Confirmation::Replace {
             version: "20260901T000000Z".into(),
+            drifted: false,
         });
         assert_eq!(
             state.confirmed(),
             Some(Confirmation::Replace {
-                version: "20260901T000000Z".into()
+                version: "20260901T000000Z".into(),
+                drifted: false,
             })
         );
         state.replaced(Err("连不上桶".into()));

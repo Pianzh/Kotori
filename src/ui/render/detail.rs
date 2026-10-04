@@ -83,12 +83,21 @@ pub(super) fn push_detail(ui: &mut Ui) {
     let pending = app
         .sync_restore_pending
         .as_ref()
-        .is_some_and(|(id, _)| app.selected.as_deref() == Some(id.as_str()));
+        .is_some_and(|(id, _, _)| app.selected.as_deref() == Some(id.as_str()));
     push_bool(w.get_detail_sync_can_act(), can_act, |v| {
         w.set_detail_sync_can_act(v)
     });
     push_bool(w.get_detail_sync_pending(), pending, |v| {
         w.set_detail_sync_pending(v)
+    });
+    // §6.7 第 1 条那条前置提示：本机偏离基线时，确认那一行要说清"会覆盖没同步的改动"。
+    // 判据来自进页面时那份横幅回包（只按 mtime），所以这里不必再问一次 daemon。
+    let drifted = app
+        .sync_restore_pending
+        .as_ref()
+        .is_some_and(|(id, _, drifted)| app.selected.as_deref() == Some(id.as_str()) && *drifted);
+    push_bool(w.get_detail_sync_drifted(), drifted, |v| {
+        w.set_detail_sync_drifted(v)
     });
     push_bool(w.get_detail_sync_busy(), app.sync_form.busy, |v| {
         w.set_detail_sync_busy(v)

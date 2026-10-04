@@ -310,3 +310,175 @@ fn an_observation_never_reads_or_lays_down_and_stays_unsettled_on_confirm() {
         "没立牌子就不许自动上传：云端不该多出第三版"
     );
 }
+
+/// 基线文件在磁盘上的位置（§6.1(c)：`<data_dir>/sync-baseline/<名字>.json`）。
+///
+/// 名字里有 game_id 的哈希，所以**不自己拼**：拿目录里唯一那个文件（夹具里一款游戏就一份
+/// 基线），找不到就报错。这样它跟 `baseline::file_name` 的实现不会各写一份规则。
+fn baseline_file(fixture: &Fixture) -> PathBuf {
+    let dir = fixture.dir.join("data/sync-baseline");
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| entry.expect("读目录项").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    files.sort();
+    assert_eq!(files.len(), 1, "夹具里这一款该正好有一份基线：{files:?}");
+    files.remove(0)
+}
+
+/// 基线文件的**字节**（"一字不动"要按字节断言，不是按解析出来的字段）。
+fn baseline_bytes(fixture: &Fixture) -> Vec<u8> {
+    let path = baseline_file(fixture);
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+/// ⚠ §6.6 第 4 步 / §6.9：**上传失败（或跳过）⇒ 基线一字不动**。
+///
+/// 造法：先手动传一版（基线因此存在），再让假 rclone 在上传那一步失败
+/// （`KOTORI_FAKE_FAIL` 命中 `copyto`，见 `tests/support/tool.rs`），最后再传一次。
+///
+/// 这一条同时钉住两件事：失败**不留**半截基线，也**不把**基线推到一个没上云的名字上 ——
+/// 不然下次启动会把"我自己那次没传成的"当成"云端最新"，去拉一个不存在的版本。
+#[test]
+fn an_upload_that_failed_leaves_the_baseline_alone() {
+    let mut fixture = Fixture::new("baseline-upload-failed");
+    fixture.enable_fake_sync(true);
+    fixture.start();
+    let (id, saves, _exe) = make_game(&fixture, "Baseline Game", b"\x7fELF failed upload");
+
+    // ① 先传一版：基线因此存在（上传成功是更新基线的两个时机之一）。
+    std::fs::write(saves.join("save.dat"), b"version-one").unwrap();
+    assert_eq!(
+        fixture.rpc("sync.now", json!({ "id": id }))["result"]["ok"],
+        true,
+        "第一版该传得上去"
+    );
+    let before = baseline_bytes(&fixture);
+
+    // ② 让上传那一步失败，再改一次存档并再传一次。
+    std::fs::write(fixture.dir.join("fail"), "copyto").unwrap();
+    std::fs::write(saves.join("save.dat"), b"version-two").unwrap();
+    assert_eq!(
+        fixture.rpc("sync.now", json!({ "id": id }))["result"]["ok"],
+        false,
+        "注入了失败之后这一次上传不该成功"
+    );
+
+    assert_eq!(
+        baseline_bytes(&fixture),
+        before,
+        "上传失败 ⇒ 基线一个字都不许动（下次启动会把同一件事重新问一遍）"
+    );
+}
+
+/// ⚠ §6.8 B ③ / §6.9：**冲突留给"稍后再说"⇒ 退出不上传**。
+///
+/// 构造与闸门 b（`SkipReason::LaunchSyncNotDone`）那条测试同源：启动前那条路判定"要问用户"
+/// ⇒ **不立牌子**；用户在弹窗里选「稍后再说」（客户端一个字段都不改）⇒ 退出上传照样被拦。
+/// 这里验的是**端到端那一半**：真跑一局、真退出，云端的版数一版都不许多。
+#[test]
+fn a_conflict_left_for_later_does_not_upload_on_exit() {
+    let (machine_a, id_a, saves_a, _remote, packages) =
+        two_machines_one_step_ahead("conflict-later");
+    let save_file = saves_a.join("save.dat");
+    let before = cloud_packages(&packages).len();
+    let fingerprint = fingerprint_of(&save_file);
+
+    // 本机在"云端已经前进了一版、本机看着没动"那一刻：启动前的判定是**要问**（第 7 格
+    // ⇒ `Confirm` ⇒ 读一遍内容核对 ⇒ 两边都动了 ⇒ `Ask(BothChanged)`），
+    // 于是**不立牌子**。用户在弹窗里选「稍后再说」= 客户端什么都不做，游戏照常启动。
+    let mut child = spawn_watched(
+        &machine_a,
+        &id_a,
+        &machine_a.dir.join("Shared Game/game.exe"),
+    );
+    child.kill().unwrap();
+    child.wait().unwrap();
+
+    // 退出钩子走完之后：云端不许多出第三版，本机存档也不许被动过。
+    let settle = |fixture: &Fixture| -> bool {
+        fixture.rpc("sync.status", json!({}))["result"]["games"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|game| {
+                game["id"] == id_a
+                    && game["last"]["action"] == "上传"
+                    && game["last"]["detail"]
+                        .as_str()
+                        .is_some_and(|detail| detail.contains("对上账"))
+            })
+    };
+    assert!(
+        wait_until(Duration::from_secs(30), || settle(&machine_a)),
+        "退出钩子该把这一次如实记下来（闸门 b 拦下了它）\n--- daemon log ---\n{}",
+        machine_a.logs()
+    );
+    assert_eq!(
+        cloud_packages(&packages).len(),
+        before,
+        "「稍后再说」⇒ 本次不拉也不传：云端一版都不许多"
+    );
+    assert_eq!(
+        fingerprint_of(&save_file),
+        fingerprint,
+        "「稍后再说」也绝不动本机存档"
+    );
+}
+
+/// ⚠ §6.7 / §6.9 的**支点**：**恢复不动基线**。
+///
+/// 先传两版（基线停在第二版），再手动恢复到**第一版**：本机的存档换了、mtime 也变了，
+/// 而基线文件的**字节**必须一模一样。整套设计的支点就在这一条上 —— 基线一旦被恢复推动，
+/// "本机被恢复成旧版"就会被认成"本机自己改的"，下一次启动的判定整盘皆错。
+#[test]
+fn restoring_an_old_version_does_not_move_the_baseline() {
+    let mut fixture = Fixture::new("restore-baseline");
+    let remote = fixture.enable_fake_sync(true);
+    fixture.start();
+    let (id, saves, _exe) = make_game(&fixture, "Restore Game", b"\x7fELF restore");
+
+    // ① 第一版。
+    let save_file = saves.join("save.dat");
+    std::fs::write(&save_file, b"version-one").unwrap();
+    assert_eq!(
+        fixture.rpc("sync.now", json!({ "id": id }))["result"]["ok"],
+        true
+    );
+    // 版本名的毫秒精度让两次上传不会撞车（从前撞过，见 `snapshots::version_stamp`）。
+    let first = cloud_packages(&remote.join(format!("games/{id}")));
+    assert_eq!(first.len(), 1, "先有第一版：{first:?}");
+    // `cloud_packages` 给的是桶里的**文件名**（带 `.zip`），而 `sync.restore` 收的是
+    // **版本名**（不带扩展名）—— 差这一个后缀就是"不是合法的版本名"。
+    let oldest = first[0]
+        .strip_suffix(".zip")
+        .expect("包名该以 .zip 结尾")
+        .to_string();
+
+    // ② 第二版（基线因此停在第二版）。
+    std::fs::write(&save_file, b"version-two").unwrap();
+    assert_eq!(
+        fixture.rpc("sync.now", json!({ "id": id }))["result"]["ok"],
+        true
+    );
+    let packages = remote.join(format!("games/{id}"));
+    assert_eq!(cloud_packages(&packages).len(), 2, "云端该有两版");
+    let before = baseline_bytes(&fixture);
+
+    // ③ 手动恢复到**第一版**（用户按的那一下，`sync.restore` 带上版本名）。
+    let response = fixture.rpc("sync.restore", json!({ "id": id, "version": oldest }));
+    assert_eq!(response["result"]["ok"], true, "恢复该成功：{response}");
+    assert_eq!(
+        std::fs::read_to_string(&save_file).unwrap(),
+        "version-one",
+        "本机存档该被换成第一版"
+    );
+
+    // ④ 支点：基线文件的**字节**完全一样。
+    assert_eq!(
+        baseline_bytes(&fixture),
+        before,
+        "恢复绝不动基线（§6.7：那是整套设计的支点）"
+    );
+}

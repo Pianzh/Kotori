@@ -13,6 +13,7 @@
 
 mod activity;
 mod add;
+mod banner;
 mod cloud;
 mod cloud_label;
 mod cloud_pick;
@@ -36,6 +37,15 @@ pub use sync::{SyncGameRow, SyncStatus};
 
 pub(super) use activity::{Activity, took_label};
 pub(super) use add::{AddMatch, MATCH_DEBOUNCE, MatchPhase};
+// 横幅（§6.8 A）：状态 + 四行文案。`SyncSnapshot` 是 `Message::SyncSnapshotLoaded` 的载荷
+// 之一（`Message` 自己是 `pub(crate)`），所以它跟着放宽 —— 同下面的 `MatchReply`。
+pub(super) use banner::{
+    SnapshotIndex, SyncBanner, conflict_message, restore_confirmation, restore_drifted,
+};
+// 解析那一层要自己拼这几块（`parse/banner.rs` 从 `ui::*` 拿不到子模块里的名字，
+// 它们只对 `crate::ui` 可见）。
+pub(crate) use banner::SyncSnapshot;
+pub(in crate::ui) use banner::{SnapshotBaseline, SnapshotCloud, SnapshotLocal};
 // `MatchReply` 是 `Message` 的载荷之一（`Message` 自己是 `pub(crate)`），所以它得跟着放宽到
 // `pub(crate)`，否则 clippy 报"类型比用到它的那个字段更私有"（同下面的 `SaveScope`）。
 pub(crate) use add::MatchReply;

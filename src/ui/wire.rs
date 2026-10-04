@@ -10,6 +10,7 @@
 //! in `update.rs` instead.
 
 use super::*;
+use crate::ui::message::ConflictAction;
 
 /// 单行输入框里的文本清洗 —— 与 `controls.slint` 里那段"粘贴带换行会让文字向下偏移"
 /// 的注释成对。
@@ -254,6 +255,24 @@ pub(super) fn install_callbacks(window: &AppWindow) {
     ask.on_answered(|choice| dispatch(Message::SyncAskAnswered(choice.to_string())));
     ask.on_pair_requested(|| dispatch(Message::SyncAskPairRequested));
     ask.on_bind_found(|| dispatch(Message::SyncAskBindFound));
+    // 横幅（§6.8 A）那颗「重新核对」：核对失败之后唯一的出路（两个页面共用一块）。
+    window.global::<SyncBannerBoard>().on_retry_requested(|| {
+        let id = with_ui(|ui| ui.app.sync_banner.game_id.clone());
+        if !id.is_empty() {
+            dispatch(Message::SyncSnapshotRequested(id));
+        }
+    });
+    // 冲突弹窗（§6.8 B）那三颗按钮：三个后果都要真的接上（见 `update::banner`）。
+    window
+        .global::<SyncAskState>()
+        .on_conflict_resolved(|choice| {
+            dispatch(Message::SyncConflictResolve(match choice.as_str() {
+                "use_cloud" => ConflictAction::UseCloud,
+                "keep_local" => ConflictAction::KeepLocal,
+                // 认不出来的一律按「稍后再说」算：它的后果最轻（不拉也不传、游戏照常起）。
+                _ => ConflictAction::Later,
+            }))
+        });
     // 「云端存档」页：刷新读索引、深度扫描读所有卡、点开一款再问一次版本、搜索是本地过滤。
     // 这一页是**管理云端的工具**：整条可点进详情、详情里每一版也可点、最下面能删整款 ——
     // 全都不碰本机（本机 ↔ 云端的交互在单游戏设置那页，见下一块）。

@@ -15,6 +15,7 @@ use super::*;
 use crate::ui::test_support::{sync_payload, sync_status_fixture, ui_game};
 
 mod add;
+mod banner;
 mod cloud;
 mod settings;
 mod versions;
@@ -275,9 +276,8 @@ fn library_and_sync_pages_render_without_a_display() {
     );
     render(&mut ui);
 
-    ui.app.sync_restore_pending = Some(("demo".into(), None));
-    render(&mut ui);
-    ui.app.sync_restore_pending = None;
+    // ⚠ 「恢复」那一问现在多一个字段（本机偏离基线了吗，§6.7 第 1 条），而横幅与冲突
+    // 弹窗那两块在 `window_test::banner` 里（它们自己就够长了）。
 
     // 单游戏页那块「云存档」：还没绑 / 已绑 / 正在确认新建，三种样子都画一遍量一遍。
     // （agent 看不到画面，这一层是唯一的替代品 —— 见 `window_test` 的文件头。）
@@ -433,6 +433,10 @@ fn library_and_sync_pages_render_without_a_display() {
     ui.window.set_game_open(false);
     ui.app.selected = None;
     ui.app.draft = None;
+
+    // 横幅（§6.8 A）与冲突弹窗（§6.8 B）那一族（`window_test::banner`，共用这一个窗口）：
+    // 四行文案各一条 + 「正在核对…」 + 三个按钮 + 两个页面都画得出那块横幅。
+    banner::banner_and_conflict(&mut ui, "demo");
 
     // 设置页那一整段（含"回调 → 消息"）在 `settings` 里，共用这一个窗口。
     settings::settings_page(ui);

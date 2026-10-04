@@ -355,7 +355,9 @@ pub(super) fn settings_page(mut ui: Ui) {
     window.global::<SyncBoard>().invoke_restore("demo".into());
     assert_app(&|app| {
         assert_eq!(
-            app.sync_restore_pending.as_ref().map(|(id, _)| id.as_str()),
+            app.sync_restore_pending
+                .as_ref()
+                .map(|(id, _, _)| id.as_str()),
             Some("demo")
         )
     });

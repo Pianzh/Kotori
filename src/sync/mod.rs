@@ -50,6 +50,7 @@ pub enum SyncError {
 
 pub mod archive;
 pub mod cloud;
+pub mod digest_cache;
 pub mod engine;
 pub mod executables;
 pub mod fingerprint;
@@ -97,6 +98,9 @@ pub use remote_paths::{
     remote_root, save_key,
 };
 pub use save_targets::{SaveTarget, targets};
-pub use snapshots::{describe_stamp, is_snapshot, prune_plan, version_stamp};
+// `stamp_time` 也带出去：横幅要判"本机缓存的那份索引过期了没有"（§6.8 A 第 2 条），
+// 而"过期"是拿缓存自己的 `cached_at` 与本机时钟比出来的 —— 解析那一个时间戳只有
+// `snapshots` 一个地方会做（见 `describe_stamp` 旁边那段"解析必须与机器无关"）。
+pub use snapshots::{describe_stamp, is_snapshot, prune_plan, stamp_time, version_stamp};
 pub use validate::{validate, validate_endpoint, validate_secrets};
 pub use versions::VersionInfo;

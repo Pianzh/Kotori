@@ -22,15 +22,21 @@ impl App {
             .map(|row| row.cloud_key.clone())
             .unwrap_or_default();
         self.versions.opened(&game_id, &key);
+        // §6.8 A 的第二处：进这一页也要那块横幅（本机 / 云端 / 基线 + 接下来）。
+        // 与"读这一款的版本列表"**并行**跑，谁先回来谁先画 —— 横幅绝不拖住页面。
+        let banner = self.banner_requested(&game_id);
         if key.is_empty() {
-            return Task::none();
+            return banner;
         }
         let socket = self.daemon_socket.clone();
-        self.activity(
-            "读这一款的版本列表",
-            async move { cloud_versions(&socket, key).await },
-            Message::GameVersionsLoaded,
-        )
+        Task::batch([
+            banner,
+            self.activity(
+                "读这一款的版本列表",
+                async move { cloud_versions(&socket, key).await },
+                Message::GameVersionsLoaded,
+            ),
+        ])
     }
 
     /// update_versions 负责的那一批消息（路由见 `update/mod.rs`）。
@@ -49,8 +55,15 @@ impl App {
                 Task::none()
             }
             // 每颗按钮只记下要问哪一件事：真正的动作等弹窗那一下。
+            //
+            // ⚠ 「替换」这一颗与单游戏页那颗「恢复」是**同一件事**（拿云端某一版覆盖本机），
+            // 所以它也吃 §6.7 第 1 条那条前置提示：本机偏离基线时，弹窗要说清"有未同步的
+            // 改动，恢复会覆盖它"。判据取自这一页那份横幅（进页面时异步问来的 `sync.snapshot`）
+            // —— 它已经是"本机 mtime vs 基线"那一条，不必为了这一颗按钮再问一次。
             Message::GameVersionsReplaceVersion(version) => {
-                self.versions.requested(Confirmation::Replace { version });
+                let drifted = self.drifted_for_this_page();
+                self.versions
+                    .requested(Confirmation::Replace { version, drifted });
                 Task::none()
             }
             Message::GameVersionsDeleteVersion(version) => {
@@ -79,7 +92,7 @@ impl App {
                 let game_id = self.versions.game_id.clone();
                 let socket = self.daemon_socket.clone();
                 match action {
-                    Confirmation::Replace { version } => self.activity(
+                    Confirmation::Replace { version, .. } => self.activity(
                         "取回存档",
                         async move {
                             // 这一页的那句话只存文字（`VersionsState::msg` 是 `String`），
@@ -122,5 +135,14 @@ impl App {
             }
             other => unreachable!("update_versions 收到了不该由它处理的消息: {other:?}"),
         }
+    }
+
+    /// 这一页（这一款的云端存档）手上那份横幅说本机偏没偏基线（§6.7 第 1 条）。
+    ///
+    /// 只认**当前这一款**的那一份：换款之后旧回包会被 banner 自己丢掉，而这里再核一次
+    /// id 是防"换了款但横幅还是上一款那份"那半秒的窗口。横幅还没回来（「正在核对…」）时
+    /// `drifted()` 给 `false` —— 那只是措辞轻一点，覆盖本机这件事**本来就还有一道二次确认**。
+    fn drifted_for_this_page(&self) -> bool {
+        self.sync_banner.game_id == self.versions.game_id && self.sync_banner.drifted()
     }
 }

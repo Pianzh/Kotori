@@ -63,6 +63,8 @@ export component GameSettingsPage inherits Rectangle {
     in property <string> sync-line: "";
     in property <bool> sync-can-act: false;
     in property <bool> sync-pending: false;
+    /// 本机偏离了基线（§6.7 第 1 条）：确认那一行加一句"会覆盖没同步的改动"。
+    in property <bool> sync-drifted: false;
     in property <bool> sync-busy: false;
     // 「浏览…」:系统里有没有可用的文件对话框(没有就灰掉按钮),以及没有时的理由。
     in property <bool> browse-enabled: true;
@@ -373,6 +375,7 @@ export component GameSettingsPage inherits Rectangle {
                     sync-line: root.sync-line;
                     sync-can-act: root.sync-can-act;
                     sync-pending: root.sync-pending;
+                    sync-drifted: root.sync-drifted;
                     sync-busy: root.sync-busy;
                     sync-now => { root.sync-now(); }
                     sync-restore => { root.sync-restore(); }

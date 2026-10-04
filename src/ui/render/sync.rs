@@ -1,6 +1,7 @@
 //! 「云同步」页:连接与保留、凭据。
 
 use super::*;
+use crate::ui::model::conflict_message;
 
 pub(super) fn push_sync(ui: &mut Ui) {
     let app = &ui.app;
@@ -157,6 +158,17 @@ pub(super) fn push_sync_ask(ui: &mut Ui) {
     // 「改配对…」把它让位给云端清单时先收起来（`sync_ask` 还留着，挑完要用它启动）。
     let open = game.is_some() && !ui.app.sync_ask_hidden;
     push_bool(ask.get_open(), open, |v| ask.set_open(v));
+    // 这一问是哪一种：冲突（§6.8 B）与"认不出云端那一条"共用这个浮层，按钮各画各的。
+    let conflict = ui.app.sync_conflict.as_deref();
+    push_str(
+        ask.get_mode(),
+        if conflict.is_some() {
+            "conflict"
+        } else {
+            "cloud"
+        },
+        |v| ask.set_mode(v),
+    );
     let name = game.map(|game| game.name.clone()).unwrap_or_default();
     push_str(ask.get_game_name(), &name, |v| ask.set_game_name(v));
     // 一句话说清现状：有像的就说有像的，没有就说没有 —— 用户 2026-09-24：文案要
@@ -165,16 +177,20 @@ pub(super) fn push_sync_ask(ui: &mut Ui) {
     // 三种说法，不能混（用户 2026-09-28）：有像的 / **没读到云端** / 云端真的没有。
     // ⚠ "没读到云端"排在"云端没有"前面 —— 那时我们**不知道**云端有没有这一款，说成
     // "没有对得上的"就是把"没看到"当成了"没有"（他就是照那句话去做手动匹配的）。
-    let message = if game.is_none() {
-        ""
+    let message = if let Some(kind) = conflict {
+        // 冲突那三种问法各有各的话（`conflict_message`，与 daemon 那份 `ask_detail`
+        // 是同一套说法的两个出口：一处给日志，一处给界面）。
+        conflict_message(kind).to_string()
+    } else if game.is_none() {
+        String::new()
     } else if ui.app.sync_ask_trouble.is_some() {
-        "没能读到云端，认不出来。"
+        "没能读到云端，认不出来。".to_string()
     } else if ui.app.sync_ask_cloud.is_some() {
-        "云端有一条像的，但不敢替你定。"
+        "云端有一条像的，但不敢替你定。".to_string()
     } else {
-        "云端没有对得上的。"
+        "云端没有对得上的。".to_string()
     };
-    push_str(ask.get_message(), message, |v| ask.set_message(v));
+    push_str(ask.get_message(), &message, |v| ask.set_message(v));
     // 原因原样带出去（daemon 已经拼成人话），空串 = 读到了、不用画。
     push_str(
         ask.get_cloud_trouble(),

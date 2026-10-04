@@ -7,6 +7,7 @@ import { Divider } from "../widgets/base.slint";
 import { StdButton } from "../widgets/buttons.slint";
 import { CardRow, Group } from "../widgets/card.slint";
 import { Switch } from "../widgets/controls.slint";
+import { SyncBannerBoard, SyncBannerCard } from "../widgets/sync-banner.slint";
 
 // 这一款参不参与云同步（`GameConfig::sync_enabled`）。
 //
@@ -48,6 +49,8 @@ export component GameSyncGroup inherits Rectangle {
     // 名字跟页面一致,组里那堆 `root.sync-…` 就不用改写了。
     in property <bool> sync-can-act: false;
     in property <bool> sync-pending: false;
+    /// 本机偏离了基线（§6.7 第 1 条）。
+    in property <bool> sync-drifted: false;
     in property <bool> sync-busy: false;
 
     callback sync-now();
@@ -66,7 +69,11 @@ export component GameSyncGroup inherits Rectangle {
                             if root.sync-can-act && root.sync-pending : HorizontalLayout {
                                 spacing: 8px;
                                 StdButton {
-                                    label: "确认恢复（会覆盖本地存档）";
+                                    // §6.7 第 1 条：本机偏离基线时把话说重一点 —— 用户点的
+                                    // 是「恢复」，而它会盖掉**还没同步过的**进度。
+                                    label: root.sync-drifted
+                                        ? "确认恢复（会覆盖未同步的本地改动）"
+                                        : "确认恢复（会覆盖本地存档）";
                                     button-width: 196px;
                                     button-enabled: !root.sync-busy;
                                     clicked => { root.sync-restore-confirmed(); }
@@ -93,6 +100,13 @@ export component GameSyncGroup inherits Rectangle {
                                 }
                             }
                         }
+                    }
+                    // §6.8 A 的两处之一：这一页的横幅。进页面时由 Rust **异步**问一次
+                    // （`sync.snapshot`），算的过程中写「正在核对…」。
+                    if SyncBannerBoard.game-id != "" : VerticalLayout {
+                        padding: 16px;
+                        padding-top: 0px;
+                        SyncBannerCard { }
                     }
                     Divider { }
                     CardRow {

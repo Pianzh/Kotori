@@ -6,6 +6,28 @@
 
 use super::*;
 
+/// 横幅（§6.8 A）：三方现在各是什么。**只读**，不读存档内容（本机的内容值只从 daemon
+/// 的登记簿里取），云端只读本机缓存那份索引 —— 缓存过期时 daemon 自己会顺手刷一次。
+///
+/// ⚠ 它挂在"进页面"那一下，**异步**跑：页面先画出来、横幅先写「正在核对…」（用户
+/// 2026-10-04 明确要求：不要点进去之前先算，那会卡住页面）。
+pub(in crate::ui) async fn sync_snapshot(
+    socket: &Path,
+    game_id: &str,
+) -> Result<SyncSnapshot, String> {
+    let params = crate::rpc::params([("id", Value::String(game_id.to_string()))]);
+    let value = crate::rpc::call(socket, "sync.snapshot", Some(params)).await?;
+    parse_sync_snapshot(&value)
+}
+
+/// 「保留本机（结束后上传）」那颗按钮（§6.8 B ②）：**什么都不拉**，只让 daemon 把
+/// "本次允许上传"的牌子立起来 —— 退出上传那道闸门（§6.6 闸门 b）随后就放行。
+pub(in crate::ui) async fn allow_upload(socket: &Path, game_id: &str) -> Result<(), String> {
+    let params = crate::rpc::params([("id", Value::String(game_id.to_string()))]);
+    crate::rpc::call(socket, "sync.allow_upload", Some(params)).await?;
+    Ok(())
+}
+
 /// Read the cloud-sync status. Secrets are never returned by the daemon, so
 /// this can be held in the UI without any caution.
 pub(in crate::ui) async fn load_sync_status() -> Result<SyncStatus, String> {

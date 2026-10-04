@@ -8,6 +8,7 @@
 use super::*;
 
 mod add;
+mod banner;
 mod cloud;
 mod picker;
 mod profile;
@@ -155,6 +156,12 @@ impl App {
                     self.error = None;
                     return Task::none();
                 }
+                // §6.8 B：冲突弹窗。启动前那条路判定"本地和云端都改过"时**不启动游戏**，
+                // 把这一问交回来（`sync_pull.ask.kind`）—— 复用同一个浮层（`SyncAskState`），
+                // 由 `sync_conflict` 那一栏换成三颗按钮。游戏照常等这一问答完再起。
+                if self.open_conflict(&result) {
+                    return Task::none();
+                }
                 self.launching = None;
                 match result {
                     Ok(value) => {
@@ -195,6 +202,8 @@ impl App {
                     self.confirm_stop = false;
                     // 同理,"确认新建"那个两段式状态也不许跟着换款。
                     self.sync_new_pending = false;
+                    // 换款也跟着换掉那一问（它是上一款的事）。
+                    self.sync_conflict = None;
                     // Seed the form from the *stored* profile. Anything else
                     // means a plain "open + save" silently rewrites settings.
                     self.draft = Some(Draft::from_game(g));
@@ -202,15 +211,23 @@ impl App {
                     // 打开「云同步」/「设置」页时才读 —— 直接从游戏库点进来时补一次。
                     load_sync = self.sync_status.is_none();
                 }
+                // 进这一页（§6.8 A 的第一处）：**异步**问一次三方状态，横幅先写「正在核对…」。
+                // ⚠ 它与上面那份 `sync.status` 是两回事：那份说的是"这一款参不参与、上次怎么样"，
+                // 这一份说的是"本机 / 云端 / 基线现在各是什么"。
+                let banner = match self.selected.clone() {
+                    Some(id) => self.banner_requested(&id),
+                    None => Task::none(),
+                };
                 if load_sync {
                     return Task::batch([
                         flush,
+                        banner,
                         Task::perform(async { load_sync_status().await }, |result| {
                             Message::SyncStatusLoaded(Box::new(result))
                         }),
                     ]);
                 }
-                flush
+                Task::batch([flush, banner])
             }
             Message::BackToList => {
                 // 离开这一页之前先把草稿交出去：`draft` 下面就被清掉了，不先发这一笔，
@@ -342,10 +359,18 @@ impl App {
             | Message::SyncMasterDeleteConfirmed
             | Message::SyncMasterDeleted(..)
             | Message::SyncNow(..)
-            | Message::SyncNowDone(..)
+            | Message::SyncNowDone(..)) => self.update_sync(m),
+
+            // ── 横幅与冲突弹窗（处理在 `update::update_banner`） ──
+            // §6.8 A（横幅）与 §6.8 B（冲突弹窗）走**同一条线**：都是"进页面 / 起游戏那一下
+            // 看到的三方状态"，只读的那半与要用户拍板的那半。
+            m @ (Message::SyncSnapshotRequested(..)
+            | Message::SyncSnapshotLoaded(..)
+            | Message::SyncConflictResolve(..)
+            | Message::SyncConflictAllowed(..)
             | Message::SyncRestoreRequested(..)
             | Message::SyncRestoreCancelled
-            | Message::SyncRestoreConfirmed) => self.update_sync(m),
+            | Message::SyncRestoreConfirmed) => self.update_banner(m),
 
             // ── 「云端存档」的浏览（处理在 `update::update_cloud`） ──
             // 它只读云端、一个字都不改本机配置，所以与上面那一族分开列。

@@ -8,6 +8,7 @@ use serde_json::{Value, json};
 
 use crate::config::{SyncConfig, SyncEngine};
 use crate::secrets::Keyring;
+use crate::sync::archive;
 
 use super::{
     CHECK_TIMEOUT, Daemon, ExitUpload, GameOutcome, Refusal, SETTLE_DELAY, SkipReason,
@@ -237,6 +238,20 @@ impl Daemon {
         Ok(json!({ "games": games }))
     }
 
+    /// 「保留本机（结束后上传）」那颗按钮（PLATFORMS.md §6.8 B ②）。
+    ///
+    /// **什么都不拉**：只把"本次允许上传"的牌子立起来（[`LaunchSync::allow_upload`]），
+    /// 退出上传那道闸门（§6.6 闸门 b）随后就放行 —— 上传成功时基线自然变成"本机成为云端
+    /// 最新"，下次比较收敛到 `Nothing`。
+    ///
+    /// ⚠ 这是**客户端替用户说出来的一句话**，所以它只做这一件事：不拉、不传、不动存档、
+    /// 不动基线。牌子的生命周期（什么时候被撤）写在 [`LaunchSync`] 头上。
+    pub(in crate::daemon) fn rpc_sync_allow_upload(&self, game_id: &str) -> Value {
+        self.sync.launch_sync.allow_upload(game_id);
+        tracing::info!("{game_id}: 用户在冲突弹窗里选了「保留本机」，本次允许退出后上传");
+        json!({ "ok": true, "settled": true })
+    }
+
     /// Put a game's saves back. Without `version`, the newest state wins.
     pub(in crate::daemon) async fn rpc_sync_restore(
         &self,
@@ -278,6 +293,16 @@ impl Daemon {
             )
         })?;
         self.sync.remember(game_id, "恢复", &outcome);
+        // ⚠ 恢复**不动基线**（§6.7：那是整套设计的支点）。但**本机的内容值变了** ——
+        // 刚铺下去的就是那一版包，所以顺手把登记簿里那一笔算准：横幅（§6.8 A）要显示
+        // "本机 digest 前 8 位"，而恢复之后这一次算得出来（刚铺完，文件都在手上，
+        // 而且这一趟本来就是用户按的、已经读了整个包）。⚠ 这里**不写基线**，一个字都不写。
+        if outcome.ok
+            && let Ok(digest) = archive::local_digest(&targets)
+            && let Ok(mtime_ms) = archive::local_mtime_ms(&targets)
+        {
+            self.sync.digests.remember(game_id, &digest, mtime_ms);
+        }
         Ok(json!({ "ok": outcome.ok, "game": outcome }))
     }
 

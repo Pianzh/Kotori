@@ -16,6 +16,20 @@ pub enum Tab {
     Settings,
 }
 
+/// 冲突弹窗（§6.8 B）那三颗按钮的三个后果。
+///
+/// 三个都要真的接上（§6.9 要求三个按钮都在且都由测试钉住），而且**都不阻塞游戏启动**。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictAction {
+    /// ① 用云端覆盖本机：立刻走 §6.5 那条路（先看再覆盖）。**这一颗不启动游戏** ——
+    /// 它是"先把存档弄对"，用户随后自己按「启动」。
+    UseCloud,
+    /// ② 保留本机（结束后上传）：什么都不拉，只把"本次允许上传"的牌子立起来。
+    KeepLocal,
+    /// ③ 稍后再说：本次**不拉也不传**，游戏照常启动（闸门 b 不满足）。
+    Later,
+}
+
 /// Which sync input a keystroke went to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SyncField {
@@ -320,4 +334,11 @@ pub enum Message {
     SyncRestoreRequested(String, Option<String>),
     SyncRestoreCancelled,
     SyncRestoreConfirmed,
+    /// 横幅（§6.8 A）：进了某一页 ⇒ **异步**问一次"三方现在长什么样"。
+    SyncSnapshotRequested(String),
+    SyncSnapshotLoaded(Box<Result<SyncSnapshot, String>>),
+    /// 冲突弹窗（§6.8 B）那三颗按钮：用云端覆盖本机 / 保留本机（结束后上传）/ 稍后再说。
+    SyncConflictResolve(ConflictAction),
+    /// 「保留本机」那块牌子立好了（`sync.allow_upload` 的回话）。
+    SyncConflictAllowed(Result<(), String>),
 }

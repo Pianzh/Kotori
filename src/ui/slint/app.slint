@@ -24,8 +24,9 @@ import { CloudVersionBoard } from "pages/cloud-version.slint";
 import { GameSyncBoard } from "pages/game-sync.slint";
 import { GameVersionsBoard } from "pages/game-versions.slint";
 import { SyncBoard } from "state/sync-board.slint";
+import { SyncBannerBoard } from "widgets/sync-banner.slint";
 // 再导出一次是**给 Rust 看的**:只有主文件导出过的全局才生成 `window.global::<…>()`。
-export { ProcessPickerState, SyncAskState, CloudBoard, CloudVersionBoard, AddMatchBoard, CloudPickerState, GameSyncBoard, GameVersionsBoard, SyncBoard }
+export { ProcessPickerState, SyncAskState, CloudBoard, CloudVersionBoard, AddMatchBoard, CloudPickerState, GameSyncBoard, GameVersionsBoard, SyncBoard, SyncBannerBoard }
 
 export component AppWindow inherits Window {
     title: "Kotori";
@@ -149,6 +150,8 @@ export component AppWindow inherits Window {
     in-out property <string> detail-sync-line: "";
     in-out property <bool> detail-sync-can-act: false;
     in-out property <bool> detail-sync-pending: false;
+    /// 本机偏离了基线（§6.7 第 1 条）：确认那一行要说清"会覆盖没同步的改动"。
+    in-out property <bool> detail-sync-drifted: false;
     in-out property <bool> detail-sync-busy: false;
 
     callback back();
@@ -309,6 +312,7 @@ export component AppWindow inherits Window {
                             sync-line: root.detail-sync-line;
                             sync-can-act: root.detail-sync-can-act;
                             sync-pending: root.detail-sync-pending;
+                            sync-drifted: root.detail-sync-drifted;
                             sync-busy: root.detail-sync-busy;
                             browse-enabled: root.browse-enabled;
                             path-hint: root.path-hint;
