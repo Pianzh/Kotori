@@ -86,7 +86,8 @@ impl ScaleEngine for UnsupportedScaleEngine {
                 .exe_path
                 .as_ref()
                 .map(|path| std::fs::canonicalize(path).unwrap_or_else(|_| path.clone()));
-            for entry in crate::process::snapshot() {
+            // 读不到进程表就什么都不杀:漏杀一个残留进程,好过误杀别人的游戏。
+            for entry in crate::process::snapshot().unwrap_or_default() {
                 if !entry.matches(name) {
                     continue;
                 }

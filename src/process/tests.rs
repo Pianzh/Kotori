@@ -270,3 +270,22 @@ fn a_parent_cycle_does_not_hang_the_walk() {
     assert_eq!(pids, vec![2, 3], "{pids:?}");
     assert_eq!(named.len(), 2, "{named:?}");
 }
+
+/// 「读不到进程表」与「没有这个进程」必须分得开:混为一谈时,watcher 会在游戏正写存档
+/// 的时候把它判成"已退出",然后上传一份半截存档(见 `scale::direct::Follow::alive`)。
+#[test]
+fn a_snapshot_that_could_not_be_read_is_not_an_empty_one() {
+    let blind = Snapshot {
+        entries: Vec::new(),
+        readable: false,
+    };
+    assert!(!blind.readable());
+    // 它当然匹配不上任何 exe —— 关键是调用方不能只看这一句,得先问 `readable()`。
+    assert!(!blind.matches_exe("game.exe", std::path::Path::new("/games/game.exe")));
+
+    let empty = Snapshot {
+        entries: Vec::new(),
+        readable: true,
+    };
+    assert!(empty.readable(), "真读到了、只是真的没有 = 可信的空表");
+}

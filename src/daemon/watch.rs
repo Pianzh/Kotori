@@ -175,7 +175,9 @@ impl Daemon {
         let Some(stopped) = ignored.get(&game.id) else {
             return false;
         };
-        let live = crate::process::find_pids(&game.name);
+        // 读不到进程表时按"那个 pid 不在了"处理:这条路的结论只是"用户没亲手停过它",
+        // 于是照旧被自动追踪 —— 保守方向(丢掉的只是"停止"那一次的记忆)。
+        let live = crate::process::find_pids(&game.name).unwrap_or_default();
         stopped.iter().any(|pid| live.contains(pid))
     }
 

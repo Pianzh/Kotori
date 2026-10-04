@@ -7,11 +7,12 @@ use super::{Pickable, ProcEntry, collect_descendants, is_plumbing, matches};
 use std::path::PathBuf;
 
 /// PIDs of running processes whose name matches `name`.
-pub fn find_pids(name: &str) -> Vec<i32> {
+///
+/// ⚠ 返回 `Err`、而不是空表:「进程表读不到」与「没有这个进程」是两件事 —— 混为一谈
+/// 会让调用方把"游戏还在跑"判成"已经退出"(见 [`super::is_running`])。
+pub fn find_pids(name: &str) -> Result<Vec<i32>, std::io::Error> {
+    let entries = std::fs::read_dir("/proc")?;
     let mut pids = Vec::new();
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return pids;
-    };
 
     for entry in entries.flatten() {
         let Some(pid) = entry
@@ -31,15 +32,13 @@ pub fn find_pids(name: &str) -> Vec<i32> {
     }
 
     pids.sort_unstable();
-    pids
+    Ok(pids)
 }
 
 /// 一份进程表快照:pid + comm + cmdline。见 [`super::Snapshot`]。
-pub fn snapshot() -> Vec<ProcEntry> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
+pub fn snapshot() -> Result<Vec<ProcEntry>, std::io::Error> {
+    let entries = std::fs::read_dir("/proc")?;
+    Ok(entries
         .flatten()
         .filter_map(|entry| {
             let pid = entry.file_name().to_str()?.parse::<i32>().ok()?;
@@ -50,7 +49,7 @@ pub fn snapshot() -> Vec<ProcEntry> {
                 cmdline: std::fs::read_to_string(dir.join("cmdline")).unwrap_or_default(),
             })
         })
-        .collect()
+        .collect())
 }
 
 /// 可以挑的进程:命令行或进程名以 `.exe` 结尾的那些(wine 跑的游戏)。
@@ -59,7 +58,9 @@ pub fn snapshot() -> Vec<ProcEntry> {
 /// `/proc/<pid>/cmdline` 里 wine 会把 exe 的完整路径写出来(常常是 `Z:\...\game.exe`
 /// 这种 Windows 形状,见 [`unix_exe_path`]),那正是"添加游戏"要填的东西。
 pub fn pickable() -> Vec<Pickable> {
+    // 读不到进程表就给出空列表:这条路只是"让用户挑一个在跑的游戏",没有数据可丢。
     snapshot()
+        .unwrap_or_default()
         .into_iter()
         .filter(|entry| !is_plumbing(&entry.name))
         .filter_map(|entry| {
@@ -123,18 +124,16 @@ pub fn exe_path(pid: i32, cmdline: &str) -> Option<PathBuf> {
 /// `(pid, ppid, comm)` for every process this user can see. `comm` arrives
 /// with a trailing newline — trimmed here, because the name is what callers
 /// compare and display.
-fn process_table() -> Vec<(i32, i32, String)> {
-    let Ok(entries) = std::fs::read_dir("/proc") else {
-        return Vec::new();
-    };
-    entries
+fn process_table() -> Result<Vec<(i32, i32, String)>, std::io::Error> {
+    let entries = std::fs::read_dir("/proc")?;
+    Ok(entries
         .flatten()
         .filter_map(|entry| {
             let pid = entry.file_name().to_str()?.parse::<i32>().ok()?;
             let name = std::fs::read_to_string(entry.path().join("comm")).unwrap_or_default();
             Some((pid, parent_of(pid)?, name.trim().to_string()))
         })
-        .collect()
+        .collect())
 }
 
 /// Every live descendant of `root`.
@@ -147,7 +146,7 @@ pub fn descendants(root: i32) -> Vec<i32> {
     if root <= 0 {
         return Vec::new();
     }
-    collect_descendants(root, &process_table()).0
+    collect_descendants(root, &process_table().unwrap_or_default()).0
 }
 
 /// Descendants of `root` that look like a game: pid and `/proc/<pid>/comm`.
@@ -159,7 +158,7 @@ pub fn live_game_processes(root: i32) -> Vec<(i32, String)> {
     if root <= 0 {
         return Vec::new();
     }
-    collect_descendants(root, &process_table())
+    collect_descendants(root, &process_table().unwrap_or_default())
         .1
         .into_iter()
         .filter(|(_, name)| !name.is_empty() && !is_plumbing(name))
@@ -228,7 +227,7 @@ mod tests {
         // its name can briefly still be this test binary — poll instead of
         // asserting immediately.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !find_pids("sleep").contains(&pid) {
+        while !find_pids("sleep").unwrap().contains(&pid) {
             assert!(
                 std::time::Instant::now() < deadline,
                 "spawned sleep (pid {pid}) never showed up as `sleep`"
@@ -243,11 +242,11 @@ mod tests {
         own.wait().unwrap();
 
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while find_pids("sleep").contains(&pid) && std::time::Instant::now() < deadline {
+        while find_pids("sleep").unwrap().contains(&pid) && std::time::Instant::now() < deadline {
             std::thread::sleep(std::time::Duration::from_millis(50));
         }
         assert!(
-            !find_pids("sleep").contains(&pid),
+            !find_pids("sleep").unwrap().contains(&pid),
             "killed process still reported as running"
         );
     }

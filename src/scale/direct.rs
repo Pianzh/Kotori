@@ -44,7 +44,13 @@ impl Follow {
     fn alive(&self) -> bool {
         match self {
             Follow::Name(name) => process::is_running(name),
-            Follow::Exe { name, exe } => process::Snapshot::take().matches_exe(name, exe),
+            Follow::Exe { name, exe } => {
+                let snapshot = process::Snapshot::take();
+                // ⚠ 读不到进程表时**不许**判"它死了":"读不到"与"没有这个进程"是两回事,
+                // 而判死的下一步就是收尾、发 `Ended`、把半截存档传上云。保守方向:当作
+                // 还在跑,下一轮再看。
+                !snapshot.readable() || snapshot.matches_exe(name, exe)
+            }
         }
     }
 
@@ -169,11 +175,29 @@ pub(super) async fn start_direct_session(
 
     // Catch "exited immediately" (bad path, missing DLL, ...) instead of
     // reporting a session that dies before it was ever alive.
+    //
+    // ⚠ 但"我们启动的那个进程退了"**不等于**"游戏没起来":启动器常常先把游戏拉起来、
+    // 自己退出(需提权重启、自我更新、包装器)。`spawn_watch_task` 的文档里早就认了这件
+    // 事("退出时名字还在跑说明是启动器交接"),可这道闸门在更早的地方就把它扔了出去 ——
+    // 症状是界面报红、游戏窗口却正常弹出,而会话没建起来 ⇒ 退出时的自动上传整条链都
+    // 不会触发。所以这里再问一次进程表:名字还在跑就照常建档,交给 watcher 去跟。
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     if let Ok(Some(status)) = child.try_wait() {
-        return Err(ScaleError::StartFailed(format!(
-            "进程立即退出（{status}）——检查可执行文件与它的工作目录"
-        )));
+        // ⚠ 判据必须是 **exe 的完整路径**,不是进程名:名字会把"别的同名进程"算进来
+        // (另一局游戏、或者测试自己造的假进程),那样一个真的立即退出的游戏会被误判成
+        // "交接成功",留下一个永远不结束的会话。名字只当便宜的预筛(见 `Snapshot::matches_exe`)。
+        let snapshot = crate::process::Snapshot::take();
+        let handed_over = !snapshot.readable()
+            || snapshot.matches_exe(name.as_deref().unwrap_or_default(), Path::new(spec.exe));
+        if !handed_over {
+            return Err(ScaleError::StartFailed(format!(
+                "进程立即退出（{status}）——检查可执行文件与它的工作目录"
+            )));
+        }
+        tracing::info!(
+            "我们启动的那个进程已经退出（{status}），但 {} 还在跑：按启动器交接继续",
+            spec.exe
+        );
     }
 
     let pid = child.id().unwrap_or(0);

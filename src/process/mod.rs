@@ -88,8 +88,18 @@ fn matches(needle: &str, seen: &str, cmdline: &str) -> bool {
 }
 
 /// Is a process with this name running?
+///
+/// ⚠ 「读不到进程表」**不是**「它没在跑」:容器里 `mask=/proc`、chroot、`hidepid=2`、
+/// Windows 上 Toolhelp 快照失败 —— 这些时刻把游戏判成"已退出",watcher 就会提前收尾
+/// 并发 `Ended`,于是在游戏正写存档的时候把半截存档传上云。保守方向:继续当作在跑。
 pub fn is_running(name: &str) -> bool {
-    !find_pids(name).is_empty()
+    match find_pids(name) {
+        Ok(pids) => !pids.is_empty(),
+        Err(error) => {
+            tracing::warn!("读不到进程表（{error}），这一轮先当作 {name} 还在跑");
+            true
+        }
+    }
 }
 
 /// 进程表里的一条。
@@ -149,14 +159,32 @@ impl ProcEntry {
 /// Toolhelp 快照)。这里只取一次,匹配在内存里做。
 pub struct Snapshot {
     entries: Vec<ProcEntry>,
+    /// 这份快照是"真读到了"还是"读不到进程表"。见 [`Snapshot::readable`]。
+    readable: bool,
 }
 
 impl Snapshot {
     /// 取一份当下的快照。
     pub fn take() -> Self {
-        Self {
-            entries: snapshot(),
+        match snapshot() {
+            Ok(entries) => Self {
+                entries,
+                readable: true,
+            },
+            Err(error) => {
+                tracing::warn!("读不到进程表（{error}），这一轮不当作「进程都不在了」");
+                Self {
+                    entries: Vec::new(),
+                    readable: false,
+                }
+            }
         }
+    }
+
+    /// 这份快照可不可信?读不到进程表时为 `false` —— 那时 [`Snapshot::matches_exe`]
+    /// 只会说"没找到",而"没找到"并不等于"它不在跑"。
+    pub fn readable(&self) -> bool {
+        self.readable
     }
 
     /// 这个 pid 现在还在进程表里吗?

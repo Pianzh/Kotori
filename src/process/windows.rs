@@ -21,15 +21,15 @@ struct Entry {
 
 /// 一份进程表快照。Windows 这边拿不到命令行,`argv0` 给空串 ——
 /// 匹配逻辑对空命令行本来就不做额外判断(见 `mod.rs` 的 `matches`)。
-pub fn snapshot() -> Vec<ProcEntry> {
-    process_table()
+pub fn snapshot() -> Result<Vec<ProcEntry>, std::io::Error> {
+    Ok(process_table()?
         .into_iter()
         .map(|entry| ProcEntry {
             pid: entry.pid,
             name: entry.name,
             cmdline: String::new(),
         })
-        .collect()
+        .collect())
 }
 
 /// 可以挑的进程:**有可见顶层窗口**的那些。
@@ -176,7 +176,7 @@ pub fn kill_tree(root: i32) -> usize {
 }
 
 /// One consistent pass over the process table.
-fn process_table() -> Vec<Entry> {
+fn process_table() -> Result<Vec<Entry>, std::io::Error> {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
     use windows_sys::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
@@ -187,7 +187,8 @@ fn process_table() -> Vec<Entry> {
     unsafe {
         let handle = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if handle == INVALID_HANDLE_VALUE {
-            return out;
+            // ⚠ 快照失败要报上去,不能当成"没有进程在跑"(见 `mod.rs` 的 `is_running`)。
+            return Err(std::io::Error::last_os_error());
         }
         let mut entry: PROCESSENTRY32W = std::mem::zeroed();
         entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
@@ -210,18 +211,18 @@ fn process_table() -> Vec<Entry> {
         }
         CloseHandle(handle);
     }
-    out
+    Ok(out)
 }
 
 /// PIDs of running processes whose exe name matches `name`.
-pub fn find_pids(name: &str) -> Vec<i32> {
-    let mut pids: Vec<i32> = process_table()
+pub fn find_pids(name: &str) -> Result<Vec<i32>, std::io::Error> {
+    let mut pids: Vec<i32> = process_table()?
         .into_iter()
         .filter(|entry| matches(name, &entry.name, ""))
         .map(|entry| entry.pid)
         .collect();
     pids.sort_unstable();
-    pids
+    Ok(pids)
 }
 
 /// Every live descendant of `root` (see `mod.rs` for why one pass wins).
@@ -230,6 +231,7 @@ pub fn descendants(root: i32) -> Vec<i32> {
         return Vec::new();
     }
     let table: Vec<(i32, i32, String)> = process_table()
+        .unwrap_or_default()
         .into_iter()
         .map(|entry| (entry.pid, entry.parent, entry.name))
         .collect();
@@ -251,7 +253,7 @@ mod tests {
         let own = std::process::id() as i32;
 
         assert!(
-            find_pids(&own_name).contains(&own),
+            find_pids(&own_name).unwrap().contains(&own),
             "当前测试进程({own_name}, pid {own})应该出现在快照里"
         );
     }

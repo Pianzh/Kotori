@@ -267,7 +267,9 @@ impl Daemon {
             let pids = session
                 .process_name
                 .as_deref()
-                .map(crate::process::find_pids)
+                // 读不到进程表时记空表:这条路的结论是"这一局别再跟了",记不下就是没记住
+                // —— 保守方向(大不了被自动追踪再认出来一次)。
+                .map(|name| crate::process::find_pids(name).unwrap_or_default())
                 .unwrap_or_default();
             self.ignored_watch
                 .write()
