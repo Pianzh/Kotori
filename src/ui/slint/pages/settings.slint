@@ -3,7 +3,7 @@
 import { ScrollView } from "std-widgets.slint";
 import { Tokens } from "../theme.slint";
 import { Divider, RevealItem } from "../widgets/base.slint";
-import { ConfigInfo, EnvCheckRow, WineInfo } from "../types.slint";
+import { ConfigInfo, DebugPanelItem, EnvCheckRow, WineInfo } from "../types.slint";
 import { PathField } from "../widgets/path-field.slint";
 import { AccentButton, StdButton } from "../widgets/buttons.slint";
 import { CardRow, Group, SectionTitle } from "../widgets/card.slint";
@@ -48,6 +48,13 @@ export component SettingsPage inherits ScrollView {
     in property <bool> env-loaded: false;
     in property <bool> env-ok: true;
 
+    // ── 调试面板（只有 `debug-panels` 构建里才可能是 true，见 `src/ui/debug.rs`）──
+    // ⚠ 这一块**永远在树里**（不赌 Slint 有没有条件编译）：`feature` 关掉时 Rust 每帧
+    //    推下来的 `debug-visible` 恒为 false，于是下面两个 `if` 都不成立 —— 用户看不到
+    //    它，也点不到它。清单与标签都由 Rust 给（按钮上的字与它激活的那件事必须同源）。
+    in property <bool> debug-visible: false;
+    in property <[DebugPanelItem]> debug-panels: [];
+
     callback service-start();
     callback service-stop();
     callback wine-prefix-changed(string);
@@ -57,6 +64,8 @@ export component SettingsPage inherits ScrollView {
     callback env-reload();
     // true = 切到便携那份。
     callback config-source-picked(bool);
+    /// 按下调试面板里第几颗按钮（下标 → `debug::DebugPanel`，映射在 `wire.rs`）。
+    callback debug-activate(int);
 
     Timer { interval: 40ms; running: true; triggered => { root.revealed = true; } }
 
@@ -391,6 +400,51 @@ export component SettingsPage inherits ScrollView {
                             font-size: 11px;
                             color: Tokens.accent;
                             wrap: word-wrap;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 调试面板 ──────────────────────────────────────────────────────
+        // **只在 `debug-panels` 构建里出现**（CI 的 Linux 交付产物开着它，见
+        // `.github/workflows/ci.yml` 与 `src/ui/debug.rs`）。两块都带 `if`：标签与
+        // 可见性都由 Rust 推下来，feature 关掉时 `debug-visible` 恒为 false。
+        //
+        // 按钮**一颗对应一个弹窗/状态**，按下去只是把假数据塞进既有状态字段 —— 弹窗与
+        // 横幅仍然是既有那些组件画出来的，这里没有、也不许有调试专用的弹窗。
+        if root.debug-visible : RevealItem {
+            revealed: root.revealed;
+            step: 7;
+            bottom: 8px;
+            SectionTitle { text: "调试"; }
+        }
+        if root.debug-visible : RevealItem {
+            revealed: root.revealed;
+            step: 7;
+            bottom: 24px;
+            Group {
+                CardRow {
+                    interactive: false;
+                    title: "强制激活弹窗与横幅";
+                    description: "假数据 + 原生渲染路径：这些按钮把假数据塞进既有的状态字段，弹窗与横幅还是既有代码画出来的。弹窗里的确认按钮在这一态下**不发任何请求**。这一块只存在于开了 debug-panels 的构建里。";
+                }
+                for panel in root.debug-panels : VerticalLayout {
+                    Divider { }
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        padding-top: 10px;
+                        padding-bottom: 10px;
+                        StdButton {
+                            label: panel.label;
+                            // ⚠ 宽度必须**写死**：这一页的根是 `ScrollView`，拿
+                            // `parent.width`（或任何跟着布局走的宽度）会让
+                            // `button-width → layoutinfo-h → min-width → viewport-width`
+                            // 绕成一个绑定环，Slint 直接在编译期把整个 `app.slint` 拒掉。
+                            // 380px 装得下最长的那个标签（见 `debug::DebugPanel::ALL`）。
+                            button-width: 380px;
+                            clicked => { root.debug-activate(panel.index); }
                         }
                     }
                 }

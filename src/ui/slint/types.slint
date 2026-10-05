@@ -190,3 +190,14 @@ export struct CloudPickRow {
     /// 「本机《某某》」/「本机没有它」/「你说过不是这一款」。
     local-label: string,
 }
+
+// 设置页那一块「调试」里的一颗按钮（对应 Rust 侧 `debug::DebugPanel`）。
+//
+// 只在 `debug-panels` 那个 feature 打开的构建里非空（清单由 `debug.rs` 推、标签也在
+// 那边 —— "按钮上的字"与"它激活的是哪一件事"必须同一个来源，见 `debug.rs` 的文件头）。
+export struct DebugPanelItem {
+    /// 传回 Rust 的下标（`debug::DebugPanel::at` 认得它）。
+    index: int,
+    /// 这颗按钮激活的是什么。
+    label: string,
+}

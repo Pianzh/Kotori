@@ -351,6 +351,34 @@ pub(super) fn install_callbacks(window: &AppWindow) {
     // 「重新检查」只是让 daemon 再探一遍;探测本身在 `crate::platform`。
     window.on_env_reload(|| dispatch(Message::EnvironmentReload));
     window.on_config_source_picked(|portable| dispatch(Message::ConfigSourcePicked(portable)));
+
+    // ── 调试面板（只有 `debug-panels` 构建里有这一块，见 `ui::debug`）──────────
+    #[cfg(feature = "debug-panels")]
+    window.on_debug_activate(|index| {
+        let Some(panel) = debug::DebugPanel::at(index) else {
+            tracing::warn!("调试面板传来了认不出的按钮下标 {index}，这次点击已忽略");
+            return;
+        };
+        dispatch(Message::DebugActivate(panel));
+        // 把窗口挪到那块东西**真正画出来**的地方。`tab` 与 `game-open` 是窗口自己的属性
+        // （点导航栏时由 `.slint` 直接改），只发消息页面根本不会切过去 —— 同 `snapshot.rs`
+        // 的 seed。⚠ 这里**不发** `TabChanged`：那会把刚塞好的 `selected` / `draft` 清掉，
+        // 于是跳过去只剩一个空页面。直接改 `app.tab` 是为了两边不各说各的。
+        match panel.place() {
+            debug::Place::Here => {}
+            debug::Place::SyncPage => with_ui(|ui| {
+                ui.app.tab = Tab::Sync;
+                ui.window.set_tab(3);
+                ui.window.set_game_open(false);
+            }),
+            debug::Place::GamePage => with_ui(|ui| {
+                ui.app.tab = Tab::Games;
+                ui.window.set_tab(0);
+                ui.window.set_game_open(true);
+                ui.reseed_detail();
+            }),
+        }
+    });
 }
 
 #[cfg(test)]

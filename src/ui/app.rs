@@ -1,6 +1,8 @@
 //! The application state itself, plus the parts of `impl App` that are neither
 //! the message loop (`super::update`) nor the view tree (`super::view`).
 
+#[cfg(feature = "debug-panels")]
+use super::debug::DebugPanel;
 use super::*;
 
 /// 顶部错误条默认挂多久（用户 2026-09-27 定：3 秒）。
@@ -148,6 +150,12 @@ pub struct App {
     /// 单游戏页那一页「这一款的云端存档」：云端有哪几版 + 替换的二次确认
     /// （`model::versions`）。它跟着 `game-open` 走，所以不是"另一页"而是一层覆盖。
     pub(super) versions: VersionsState,
+    /// 调试面板现在摆着的是哪一颗（见 `ui::debug`）。
+    ///
+    /// ⚠ **这个字段只在 `debug-panels` 构建里存在**：普通构建里它连同下面那条"调试态的
+    /// 弹窗按钮不走后端"的拦截一起消失，release 路径上一个分支都不多。`None` = 没摆。
+    #[cfg(feature = "debug-panels")]
+    pub(super) debug_panel: Option<DebugPanel>,
 }
 
 impl App {
@@ -221,6 +229,8 @@ impl App {
                 sync_banner: SyncBanner::default(),
                 sync_conflict: None,
                 versions: VersionsState::default(),
+                #[cfg(feature = "debug-panels")]
+                debug_panel: None,
             },
             Task::batch([
                 Task::perform(async { connect_and_load().await }, Message::GamesLoaded),

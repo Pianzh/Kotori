@@ -68,8 +68,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      # ⚠ 这一份产物带 `debug-panels`（设置页里多一块「调试」，见 `src/ui/debug.rs`）：
+      #   ① 用户从 Release 拿到的包由 `release.yml` 出，那边**不开**这个 feature，
+      #      所以交付给用户的那一份永远没有它；
+      #   ② 它因此在 CI 里**一定被编译到** —— 不允许出现"本地不编、一开就红"。
       - name: 构建 release
-        run: cargo build --release --locked
+        run: cargo build --release --locked --features debug-panels
 
       - name: 打包 x86_64 产物
         run: |
@@ -84,6 +88,8 @@ jobs:
             echo "built:  $(date -u +%Y-%m-%dT%H:%M:%SZ)  (ubuntu-24.04 runner)"
             echo "rustc:  $(rustc --version)"
             echo "glibc:  $(ldd --version | head -1)"
+            # 这份产物带着调试面板（设置页最下面那块「调试」），说清楚免得下包的人以为见了鬼。
+            echo "features: debug-panels（调试面板，见 src/ui/debug.rs）"
             echo
             echo "== file dist/$name/kotori =="
             file "dist/$name/kotori"
@@ -102,6 +108,42 @@ jobs:
           # 每次 push 都出一个包,所以保留期短:够"推完就下载来验",又不至于把
           # artifact 一份份攒下去。要长期留的那份走 Release(见 release.yml)。
           retention-days: 7
+
+  # ── `debug-panels` 那一份的 lint:单独一关,补掉 `build-linux` 的盲区 ──────
+  # 为什么非要有它:`debug-panels`（设置页那块「调试」，见 `src/ui/debug.rs`）**只在
+  # `build-linux` 里开**，而 `cargo build` 不跑 clippy；`verify.yml`（CI 与 Release 共用的
+  # 那一套）也不开这个 feature —— 于是 `debug.rs` 与它的测试成了一口 **lint 盲区**:
+  # 本地不编、CI 里也没人 lint，只有等人手动跑才发现。
+  # 2026-10-05 那一夜已经吃过两次"本地看不见的代码一到 CI 就红"的亏（先是 windows 侧的
+  # 调用点，后来是一条 `doc list item overindented`），所以这一关刻意照
+  # `verify.yml` 的 clippy 那一步来（同一条命令 + `-D warnings`），只是多带一个 feature。
+  #
+  # ⚠ 与 `build-linux` 并行:它只 lint、不打包，wall time 与那个 job 重叠，不拖慢整体。
+  # ⚠ 系统依赖那一步照抄 `build-linux`（Slint 要的那串 apt 包）—— 缺了会在链接期才炸。
+  # ⚠ 别把这一关塞进 `build-linux` 或 `verify.yml`:前者是交付产物、后者被 Release 共用，
+  #   而 Release 不该带 `debug-panels`。
+  clippy-debug-panels:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # Slint 的 Linux 依赖(libxcb-shape0-dev 等)。缺了会在链接期才炸,别省。
+      # zstd 是给打包用的(和 aarch64 那条同一个形状)。
+      - name: 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
+            libfontconfig-dev libssl-dev zstd
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Clippy(带 debug-panels，零告警)
+        run: cargo clippy --all-targets --locked --features debug-panels -- -D warnings
 
   # ── aarch64:同一套测试,跑在真 ARM 上 ───────────────────────────────────
   # ⚠ 这一步只在**公开**仓库里免费(私有用 larger runner 才有 arm64)。

@@ -9,7 +9,7 @@
 import { Tokens } from "theme.slint";
 import { Gap, NavItem } from "widgets/base.slint";
 import { StdButton } from "widgets/buttons.slint";
-import { GameItem, GameDetail, SaveItem, ConfigInfo, EnvCheckRow, PathPick, ProcessPickRow, WineInfo } from "types.slint";
+import { GameItem, GameDetail, SaveItem, ConfigInfo, DebugPanelItem, EnvCheckRow, PathPick, ProcessPickRow, WineInfo } from "types.slint";
 import { AppNav } from "app-nav.slint";
 import { GamesPage } from "pages/games.slint";
 import { GameSettingsPage } from "pages/game-settings.slint";
@@ -216,6 +216,12 @@ export component AppWindow inherits Window {
     // 设置页「配置文件」:放在哪、能不能换(措辞由 Rust 算,见 render/settings.rs)。
     in-out property <ConfigInfo> config: { path: "", label: "", is-portable: false, can-switch: false, busy: false, message: "", message-ok: true };
 
+    // ── 调试面板（只有 `debug-panels` 构建里才可能是 true，见 `src/ui/debug.rs`）──
+    // `debug-visible` 由 render **每帧都推**（feature 关掉时恒为 false），所以设置页里
+    // 那一块永远在树里、但用户永远看不见它。
+    in-out property <bool> debug-visible: false;
+    in-out property <[DebugPanelItem]> debug-panels: [];
+
     callback service-start();
     callback service-stop();
     callback wine-prefix-changed(string);
@@ -223,6 +229,8 @@ export component AppWindow inherits Window {
     callback save-wine-prefix();
     callback clear-wine-prefix();
     callback config-source-picked(bool);
+    /// 调试面板里第几颗按钮（下标 → `debug::DebugPanel`，映射在 `wire.rs`）。
+    callback debug-activate(int);
 
     VerticalLayout {
         spacing: 0px;
@@ -415,6 +423,9 @@ export component AppWindow inherits Window {
                             env-loaded: root.env-loaded;
                             env-ok: root.env-ok;
                             config <=> root.config;
+                            debug-visible: root.debug-visible;
+                            debug-panels: root.debug-panels;
+                            debug-activate(index) => { root.debug-activate(index); }
                             config-source-picked(portable) => { root.config-source-picked(portable); }
                             env-reload => { root.env-reload(); }
                             service-start => { root.service-start(); }

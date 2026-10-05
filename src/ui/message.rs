@@ -1,5 +1,7 @@
 //! The Elm-style message enum and the small enums it carries.
 
+#[cfg(feature = "debug-panels")]
+use super::debug::DebugPanel;
 use super::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -341,4 +343,11 @@ pub enum Message {
     SyncConflictResolve(ConflictAction),
     /// 「保留本机」那块牌子立好了（`sync.allow_upload` 的回话）。
     SyncConflictAllowed(Result<(), String>),
+    /// 调试面板里按下了一颗按钮（**只有 `debug-panels` 构建里存在这个变体**）。
+    ///
+    /// 它的处理只做一件事：把假数据塞进既有的状态字段（见 `debug.rs`），让既有的 render
+    /// 代码把那个弹窗/横幅画出来。⚠ 调试态下弹窗上的按钮一律**不走后端**（拦截在
+    /// `update/mod.rs` 的入口）。
+    #[cfg(feature = "debug-panels")]
+    DebugActivate(DebugPanel),
 }

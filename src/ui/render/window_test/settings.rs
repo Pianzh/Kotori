@@ -22,6 +22,28 @@ pub(super) fn settings_page(mut ui: Ui) {
     show_tab(&mut ui, Tab::Settings);
     ui.app.sync_form.master_password.clear();
     render(&mut ui);
+
+    // 调试面板那一块（见 `src/ui/debug.rs`）：**feature 关着时它必须从用户眼前消失** ——
+    // 那一块在 `.slint` 里是常驻的，靠 render 每帧推的 `debug-visible` 藏起来，默认值不算数；
+    // 开着那个 feature 时它反过来必须出现（下标 → 枚举的映射由 `debug` 的单测钉着）。
+    #[cfg(not(feature = "debug-panels"))]
+    {
+        assert!(!ui.window.get_debug_visible(), "那一块不许出现在用户眼前");
+        assert_eq!(
+            ui.window.get_debug_panels().row_count(),
+            0,
+            "连按钮清单都不该有"
+        );
+    }
+    #[cfg(feature = "debug-panels")]
+    {
+        assert!(ui.window.get_debug_visible(), "开了这个 feature 就该出现");
+        assert_eq!(
+            ui.window.get_debug_panels().row_count(),
+            crate::ui::debug::DebugPanel::ALL.len(),
+            "每一颗按钮都要推下去"
+        );
+    }
     for (connected, paused) in [
         (Some(true), false),
         (Some(false), true),
@@ -428,4 +450,45 @@ pub(super) fn settings_page(mut ui: Ui) {
     assert_app(&|app| assert!(app.daemon_paused && app.service_busy));
     window.invoke_service_start();
     assert_app(&|app| assert!(app.service_busy));
+
+    // ── 调试面板那颗回调（只有 `debug-panels` 构建里接了线，见 `ui::debug`）──────
+    // 下标 → `debug::DebugPanel` 接错在编译期看不出来，症状是"点了没反应"或者"点了弹出
+    // 别的东西"。顺带验窗口真的跳到了那块东西画出来的地方 —— 不跳过去的话，那颗按钮
+    // 看着就像坏的（浮层那一类例外：它在窗口级，原地就看得见）。
+    #[cfg(feature = "debug-panels")]
+    {
+        use crate::ui::debug::{DebugPanel, GAME_ID, Place};
+
+        // 冲突弹窗是窗口级浮层：点完留在原地，弹窗自己盖上来。
+        window.invoke_debug_activate(0);
+        assert_app(&|app| assert_eq!(app.debug_panel, Some(DebugPanel::Conflict)));
+        assert_eq!(window.get_tab(), 4, "浮层那一颗不该把页面切走");
+
+        // 越界的下标当没点（绝不兜底成第一颗）。
+        let before = with_ui(|ui| ui.app.debug_panel);
+        window.invoke_debug_activate(-1);
+        assert_app(&|app| assert_eq!(app.debug_panel, before));
+
+        // 单游戏页那一颗：跟着跳到「游戏库」并把单游戏页打开（不然什么都看不见）。
+        let index = DebugPanel::ALL
+            .iter()
+            .position(|(panel, _)| panel.place() == Place::GamePage)
+            .expect("总有一颗按钮长在单游戏页上") as i32;
+        window.invoke_debug_activate(index);
+        assert!(window.get_game_open(), "那一颗要跳进单游戏页");
+        assert_eq!(window.get_tab(), 0);
+        assert_app(&|app| assert_eq!(app.selected.as_deref(), Some(GAME_ID)));
+
+        // 假游戏与假状态不留在这儿（它们不属于这个测试的其余断言）。
+        with_ui(|ui| {
+            ui.app.games.retain(|game| game.id != GAME_ID);
+            ui.app.selected = None;
+            ui.app.draft = None;
+            ui.app.debug_panel = None;
+            ui.app.versions.closed();
+            ui.app.tab = Tab::Settings;
+            ui.window.set_tab(4);
+            ui.window.set_game_open(false);
+        });
+    }
 }

@@ -5,6 +5,15 @@ edition = "2024"
 description = "Galgame manager with scaling and cloud sync for Linux (Niri/Wayland)"
 authors = ["pzh"]
 
+[features]
+# 调试面板（见 `src/ui/debug.rs`）：设置页里多一块「调试」，几颗按钮把**假数据**塞进
+# 既有的状态字段，逼那些平时很难碰到的弹窗与横幅走原生渲染路径画出来。
+#
+# ⚠ **默认关**，只在 CI 的 Linux 交付产物 job（`.github/workflows/ci.yml` 的
+#   `build-linux`）里开：① 用户从 Release 拿到的包（`release.yml`）永远没有它；
+#   ② 它因此在 CI 里**一定被编译到**，不会出现"本地没编、一开就红"。
+debug-panels = []
+
 [dependencies]
 # GUI. Slint renders the whole front end (ADR-018: "maximise the Windows 11
 # resemblance" — WinUI 3 look, animations, and an IME that actually works under

@@ -25,6 +25,16 @@ use settings::is_settings_message;
 
 impl App {
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        // ⚠ **调试态的拦截**（只有 `debug-panels` 构建里可能存在，见 `ui::debug`）：假弹窗
+        // 上那颗确认按钮**一个 RPC 都不许发**。拦在**入口**这一处而不是每一族 handler 里
+        // 各加一条 —— 那一族有十几处分支，漏一处只会等到"按下确认"时才暴露，而那时人已经
+        // 在看假弹窗了。规则只有一条：**调试态 + 弹窗按钮 ⇒ 收掉假态、什么都不做**。
+        // 普通构建里这个字段根本不存在，这一行也一起消失（release 路径上一条分支都不多）。
+        #[cfg(feature = "debug-panels")]
+        if let Some(task) = self.debug_intercept(&message) {
+            return task;
+        }
+
         match message {
             Message::TabChanged(tab) => {
                 self.tab = tab;
@@ -371,6 +381,12 @@ impl App {
             | Message::SyncRestoreRequested(..)
             | Message::SyncRestoreCancelled
             | Message::SyncRestoreConfirmed) => self.update_banner(m),
+
+            // ── 调试面板（只有 `debug-panels` 构建里存在这个变体，见 `ui::debug`） ──
+            // 它只把假数据塞进上面那些状态字段，一个请求都不发；弹窗上那些按钮则由本函数
+            // 入口那处拦截吞掉（见 `App::debug_intercept`）。
+            #[cfg(feature = "debug-panels")]
+            Message::DebugActivate(panel) => self.debug_activate(panel),
 
             // ── 「云端存档」的浏览（处理在 `update::update_cloud`） ──
             // 它只读云端、一个字都不改本机配置，所以与上面那一族分开列。

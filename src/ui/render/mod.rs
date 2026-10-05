@@ -59,6 +59,18 @@ pub(super) fn render(ui: &mut Ui) {
     push_sync_banner(ui);
     push_versions(ui);
     push_settings(ui);
+
+    // 调试面板（设置页那一块「调试」，见 `ui::debug`）：**两半都要有**。
+    // feature 开着时把按钮清单与 `debug-visible = true` 推下去；关着时每帧推一次
+    // `false` —— 那一块在 `.slint` 里永远在树里（不赌 Slint 的条件编译），靠这个属性
+    // 藏起来，所以用户看到的永远是藏起来的那一块。
+    #[cfg(feature = "debug-panels")]
+    debug::push_debug_panel(ui);
+    #[cfg(not(feature = "debug-panels"))]
+    {
+        let w = &ui.window;
+        push_bool(w.get_debug_visible(), false, |v| w.set_debug_visible(v));
+    }
 }
 /// 「浏览…」:按钮能不能点,以及不能点时那行理由。
 ///

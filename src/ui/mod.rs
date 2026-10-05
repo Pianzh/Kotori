@@ -31,6 +31,10 @@ slint::include_modules!();
 mod app;
 mod backend;
 mod crash;
+// 调试面板（设置页那一块「调试」）：**只在 `debug-panels` 构建里存在**（见 `debug.rs`
+// 的文件头）。默认关，只在 CI 的 Linux 交付产物 job 里开。
+#[cfg(feature = "debug-panels")]
+mod debug;
 mod driver;
 mod font;
 mod message;
