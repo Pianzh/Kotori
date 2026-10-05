@@ -24,6 +24,8 @@ Kotori 把这两件事收进一个界面。游戏点一下就启动，进游戏�
 
 功能与交互形态参考 [Magpie](https://github.com/Blinue/Magpie)，这是项目一开始就定下的方向。与市面上常见的那些管理器不同，Kotori 刻意不做 gal 周边那一套：分类、封面、元数据、VNDB 条目都不在范围内。将来是否会加入其中一部分，尚未确定。
 
+本项目是我学习、熟悉、体验agent工作的产物，100%由vibe coding开发，几乎98%的内容是deepseekv4.1写的。我认为本项目作为一个vibe产物非常失败，半数以上的架构，尤其是牵扯多设备实时同步、冲突处理等的问题，都比我最早想象的要复杂得多，大量内容需要我自己主动进行规划决策，需要我自己实时盯着ds工作。ds4.1有一个很大的毛病，就是特别喜欢自己蛮干，干着干着就会超出架构，写一堆完全没有必要、非常臃肿的东西出来，而且ds默认的决策在很多时候非常糟糕，会更倾向使用更复杂更大开销且完全没有必要甚至达到秒级延迟的解决方式，非常破坏性能和使用体验，我只能尽我自己不足的能力去尝试指导、修改架构。本项目也让我深深看到了自己能力的不足与边界，我仍然会不定期维护更新本项目的，直到把它变成一个能用的，体验还不错的多端无感云同步缩放工具为止。
+
 ## 功能
 
 ### 游戏库
@@ -51,11 +53,11 @@ Kotori 把这两件事收进一个界面。游戏点一下就启动，进游戏�
 
 ## 平台支持
 
-| 平台 | 启动游戏 | 进程追踪与退出后上传 | 运行时缩放 | 云存档同步 |
-|:---|:---:|:---:|:---:|:---:|
-| Linux x86_64 | ✅ wine + gamescope | ✅ | ✅ | ✅ |
-| Linux aarch64 | ✅ | ✅ | ⚠️ 未验证 | ✅ |
-| Windows x64 | ✅ 直接启动 exe | ✅ | ❌ 交给 Magpie | ✅ |
+| 平台          |      启动游戏       | 进程追踪与退出后上传 |   运行时缩放   | 云存档同步 |
+| :------------ | :-----------------: | :------------------: | :------------: | :--------: |
+| Linux x86_64  | ✅ wine + gamescope |          ✅          |       ✅       |     ✅     |
+| Linux aarch64 |         ✅          |          ✅          |   ⚠️ 未验证    |     ✅     |
+| Windows x64   |   ✅ 直接启动 exe   |          ✅          | ❌ 交给 Magpie |     ✅     |
 
 Windows 上的缩放不归 Kotori 管，缩放由 Magpie 负责，Kotori 与它之间只有观察能力，没有控制接口。
 
@@ -63,15 +65,15 @@ Windows 上的缩放不归 Kotori 管，缩放由 Magpie 负责，Kotori 与它�
 
 Linux 上需要这些外部程序。设置页的「环境检查」会逐项探测，缺哪个会说明影响哪项功能、给出安装方式。
 
-| 依赖 | 用途 | 必需性 |
-| --- | --- | :---: |
-| `wine` | 启动 Windows 游戏（缩放与直启都要） | 必需 |
-| `gamescope` ≥ 3.16 | 带缩放启动游戏 | 缩放启动必需 |
-| `kopia` | 云同步引擎（默认） | 可选 |
-| `rclone` | 云同步引擎（备选） | 可选 |
-| `secret-tool`（libsecret） | 系统密钥环 | 可选 |
-| `xdg-desktop-portal` + 后端 | 「浏览…」文件选择对话框 | 可选 |
-| KWin（仅 KDE Plasma） | 运行时调整窗口尺寸与全屏 | 可选 |
+| 依赖                        | 用途                                |    必需性    |
+| --------------------------- | ----------------------------------- | :----------: |
+| `wine`                      | 启动 Windows 游戏（缩放与直启都要） |     必需     |
+| `gamescope` ≥ 3.16          | 带缩放启动游戏                      | 缩放启动必需 |
+| `kopia`                     | 云同步引擎（默认）                  |     可选     |
+| `rclone`                    | 云同步引擎（备选）                  |     可选     |
+| `secret-tool`（libsecret）  | 系统密钥环                          |     可选     |
+| `xdg-desktop-portal` + 后端 | 「浏览…」文件选择对话框             |     可选     |
+| KWin（仅 KDE Plasma）       | 运行时调整窗口尺寸与全屏            |     可选     |
 
 两个同步引擎至少要有一个。云同步引擎的查找顺序：设置页里指定的路径 → `KOTORI_KOPIA` / `KOTORI_RCLONE` → Kotori 可执行文件同目录 → `PATH`。
 
@@ -120,25 +122,25 @@ cd kotori-linux-x86_64
 
 不带子命令直接运行就是打开图形界面，Windows 上双击 `kotori.exe`、Linux 上点桌面图标走的是同一条路径。
 
-| 命令 | 说明 |
-|:---|:---|
-| `kotori` | 打开图形界面，需要时顺带拉起后台服务 |
-| `kotori status` | 查看后台服务状态与正在运行的会话 |
-| `kotori list` | 列出已登记的游戏 |
-| `kotori launch <id>` | 启动指定游戏 |
-| `kotori scan <目录>` | 扫描目录并打印识别到的游戏 |
-| `kotori add <目录>` | 扫描目录并把结果写入配置 |
-| `kotori sync status` | 查看同步配置、缺失项与各游戏的上次同步时间 |
-| `kotori sync now [id]` | 立即上传，不带 id 则同步全部 |
-| `kotori sync versions <id>` | 列出云端为该游戏保存的版本 |
-| `kotori sync cloud` | 列出云端已有的全部游戏，包括本机未安装的 |
-| `kotori sync restore <id> [--version <版本>]` | 取回存档，不带 `--version` 取最新版 |
-| `kotori sync test` | 校验凭据与 bucket |
-| `kotori sync master-password` | 把凭据转存为主密码加密文件 |
-| `kotori sync lock` | 忘记密钥，需要重新输入主密码 |
-| `kotori scale <子命令>` | 运行时调整缩放，见下文 |
-| `kotori reload` | 手工改过 `config.toml` 后重新加载 |
-| `kotori shutdown` | 停止后台服务 |
+| 命令                                          | 说明                                       |
+| :-------------------------------------------- | :----------------------------------------- |
+| `kotori`                                      | 打开图形界面，需要时顺带拉起后台服务       |
+| `kotori status`                               | 查看后台服务状态与正在运行的会话           |
+| `kotori list`                                 | 列出已登记的游戏                           |
+| `kotori launch <id>`                          | 启动指定游戏                               |
+| `kotori scan <目录>`                          | 扫描目录并打印识别到的游戏                 |
+| `kotori add <目录>`                           | 扫描目录并把结果写入配置                   |
+| `kotori sync status`                          | 查看同步配置、缺失项与各游戏的上次同步时间 |
+| `kotori sync now [id]`                        | 立即上传，不带 id 则同步全部               |
+| `kotori sync versions <id>`                   | 列出云端为该游戏保存的版本                 |
+| `kotori sync cloud`                           | 列出云端已有的全部游戏，包括本机未安装的   |
+| `kotori sync restore <id> [--version <版本>]` | 取回存档，不带 `--version` 取最新版        |
+| `kotori sync test`                            | 校验凭据与 bucket                          |
+| `kotori sync master-password`                 | 把凭据转存为主密码加密文件                 |
+| `kotori sync lock`                            | 忘记密钥，需要重新输入主密码               |
+| `kotori scale <子命令>`                       | 运行时调整缩放，见下文                     |
+| `kotori reload`                               | 手工改过 `config.toml` 后重新加载          |
+| `kotori shutdown`                             | 停止后台服务                               |
 
 `kotori daemon` 与 `kotori ui` 分别显式启动后台服务与界面。
 
@@ -146,11 +148,11 @@ cd kotori-linux-x86_64
 
 每条存档位置在录入时就选定形态，存储的形态决定了它能不能跨机器解析。
 
-| 形态 | 含义 | 适用场景 |
-| --- | --- | --- |
-| `windows` | Wine prefix 内的 Windows 路径 | 存档在 AppData、文档、SAVEDGAMES 下 |
-| `relative` | 相对游戏根目录 | 其余能用相对路径表达的位置 |
-| `absolute` | 本机绝对路径 | 只在这台机器上有效，不参与跨平台映射 |
+| 形态       | 含义                          | 适用场景                             |
+| ---------- | ----------------------------- | ------------------------------------ |
+| `windows`  | Wine prefix 内的 Windows 路径 | 存档在 AppData、文档、SAVEDGAMES 下  |
+| `relative` | 相对游戏根目录                | 其余能用相对路径表达的位置           |
+| `absolute` | 本机绝对路径                  | 只在这台机器上有效，不参与跨平台映射 |
 
 `windows` 形态请使用 `%APPDATA%`、`%USERPROFILE%`、`%SAVEDGAMES%` 这类令牌，不要写死用户名。不同 prefix 里的用户名不一致（普通 wine 用 Linux 账户名，Proton 通常是 `steamuser`），写死后换机器就解析不出来。
 
@@ -185,12 +187,12 @@ Windows 凭据管理器尚未接入，Windows 上使用明文文件，`%APPDATA%
 
 「云端存档」页管理 bucket，与本机是否安装该游戏无关。四个操作都会先弹出确认：
 
-| 操作 | 结果 |
-|:---|:---|
-| 删除某个版本 | 只删该版本，本机存档不动 |
+| 操作         | 结果                                                         |
+| :----------- | :----------------------------------------------------------- |
+| 删除某个版本 | 只删该版本，本机存档不动                                     |
 | 清空某款游戏 | 删掉该游戏的全部存档，保留游戏条目，之后的同步仍写入同一条目 |
-| 删除游戏条目 | 连同该条目的全部存档一起删除，不留无主数据 |
-| 恢复某个版本 | 用云端版本覆盖本机存档目录，不可撤销 |
+| 删除游戏条目 | 连同该条目的全部存档一起删除，不留无主数据                   |
+| 恢复某个版本 | 用云端版本覆盖本机存档目录，不可撤销                         |
 
 ## 缩放
 
@@ -198,15 +200,15 @@ Linux 上游戏由 gamescope 启动。缩放参数在单游戏设置的「缩放
 
 游戏运行过程中可以调整，命令行与界面是同一套动作，只作用于指定的那一局：
 
-| 子命令 | 说明 |
-|:---|:---|
-| `kotori scale status` | 查看运行中的会话及其当前缩放参数 |
-| `kotori scale fsr` / `nis` | 切换 FSR / NIS 上采样 |
-| `kotori scale integer` / `linear` | 整数（最近邻）／ 双线性 |
-| `kotori scale sharpness <±n>` | 调整锐度，正数为更锐 |
-| `kotori scale up` / `down` | 缩放比例升 / 降一档 |
-| `kotori scale toggle` / `reset` | 在缩放与 1:1 之间切换 ／ 直接回到 1:1 |
-| `kotori scale fullscreen` | 切换游戏窗口全屏（仅 KDE） |
+| 子命令                            | 说明                                  |
+| :-------------------------------- | :------------------------------------ |
+| `kotori scale status`             | 查看运行中的会话及其当前缩放参数      |
+| `kotori scale fsr` / `nis`        | 切换 FSR / NIS 上采样                 |
+| `kotori scale integer` / `linear` | 整数（最近邻）／ 双线性               |
+| `kotori scale sharpness <±n>`     | 调整锐度，正数为更锐                  |
+| `kotori scale up` / `down`        | 缩放比例升 / 降一档                   |
+| `kotori scale toggle` / `reset`   | 在缩放与 1:1 之间切换 ／ 直接回到 1:1 |
+| `kotori scale fullscreen`         | 切换游戏窗口全屏（仅 KDE）            |
 
 同时运行多款游戏时，追加会话 ID 可指定操作对象。
 
