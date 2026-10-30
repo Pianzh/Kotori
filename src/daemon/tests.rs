@@ -104,9 +104,20 @@ async fn a_game_name_with_control_characters_is_refused() {
 #[tokio::test]
 async fn renaming_a_game_to_a_control_character_name_is_refused() {
     let daemon = daemon_in_scratch("rename-control-char");
+    // ⚠ 用**测试二进制自己的路径**当 exe，而不是写死 `/bin/true`：那个在 Windows 上
+    // 不存在，`game.create` 会先被"可执行文件不存在"拒掉，这条测试就永远看不到
+    // 它要测的那一关（第一次推上去就是这么红的）。JSON 由 `json!` 生成，Windows
+    // 路径里的反斜杠也不必手工转义。
+    let exe = std::env::current_exe().expect("测试二进制该有路径");
     let created = daemon
         .handle_request(
-            r#"{"jsonrpc":"2.0","id":1,"method":"game.create","params":{"name":"ok","exe_path":"/bin/true"}}"#,
+            &serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "game.create",
+                "params": { "name": "ok", "exe_path": exe.to_string_lossy() },
+            })
+            .to_string(),
         )
         .await;
     let value: Value = serde_json::from_str(&created.body).unwrap();
