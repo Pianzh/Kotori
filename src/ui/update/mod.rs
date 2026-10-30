@@ -471,9 +471,16 @@ impl App {
             Message::EffectPanicked => {
                 tracing::error!("一个后台任务 panic 了，正在复位界面状态并接回轮询");
                 self.save_in_flight = None;
+                self.pending_save = None;
                 self.saving = false;
                 self.service_busy = false;
                 self.sync_form.busy = false;
+                // ⚠ **所有**"等回包才复位"的位都要清（SC-03）：漏掉哪一个，那颗按钮
+                // 就永久灰死 —— 而它的回包已经在 panic 里蒸发了，没有任何东西会来
+                // 复位它，用户唯一的出路是重启界面。加一个这种位，这里就得跟着加。
+                self.launching = None;
+                self.creating = false;
+                self.picking = false;
                 self.poll_status()
             }
             // 一件耗时的事跑完了：摘掉底部那行"正在…"，把它记成"刚做完什么、花了多久"，
@@ -540,7 +547,14 @@ impl App {
             }
             // 每一族都按变体精确列了，所以走到这里只可能是"新加了一条消息而忘了挂到
             // 某一族"。与其静默丢掉它，不如立刻炸出来 —— 整页渲染测试会先撞上。
-            other => unreachable!("没有 handler 认领这条消息: {other:?}"),
+            //
+            // ⚠ **刻意不打印 `other` 的内容**（SC-13）：`Message` 里有几个变体是直接
+            // 带着明文的（主密码、B2 app key 这类），而 `{other:?}` 会把它们原样写进
+            // panic 消息，再顺着 stderr / 日志落地。要定位靠的是"这次跑的是哪条测试、
+            // 哪一页"——那比泄露一个密码便宜得多。
+            _other => {
+                unreachable!("没有 handler 认领这条消息（内容刻意不打印：它可能带着主密码）")
+            }
         }
     }
 }

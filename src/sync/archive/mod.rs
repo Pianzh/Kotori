@@ -166,14 +166,29 @@ pub fn apply_mtime(path: &Path, ms: i64) -> Result<(), String> {
 /// 包是我们自己打的，但恢复一个别人给的、或者被改过的包时，`../../.bashrc`
 /// 这种名字必须在这里就被拦住——`local.join(entry.path)` 一旦逃出存档目录，
 /// 覆盖的就不只是存档了。
+///
+/// ⚠ 还要挡 **Windows 盘符**（SC-04）：`C:/Windows/x` 每一段都"干净"，但
+/// `PathBuf::push` 遇到盘符前缀会**整条替换基路径**，于是 `存档目录.join("C:/…")`
+/// 就是 `C:/…` —— zip-slip 的全部后果，只差一个斜杠方向。Linux 上跑不出来，因为
+/// 那边 `C:` 只是普通文件名的一部分。
 pub(super) fn safe_rel(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
         && !path.contains('\\')
         && !path.contains('\0')
+        && !has_drive_prefix(path)
         && path
             .split('/')
             .all(|part| !part.is_empty() && part != "." && part != "..")
+}
+
+/// 第一段是不是盘符（`C:` / `d:`）。
+///
+/// 只认**开头那一个 ASCII 字母 + 冒号**：`save:01.dat` 这类正常文件名不受影响，
+/// 而 `c:foo` 这种相对盘符路径同样会触发 Windows 的前缀解析，一起拒掉。
+fn has_drive_prefix(path: &str) -> bool {
+    let mut chars = path.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic()) && chars.next() == Some(':')
 }
 
 /// 把包内的 `/` 分隔路径转成本机路径。

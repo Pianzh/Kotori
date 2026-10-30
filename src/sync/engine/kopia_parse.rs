@@ -28,7 +28,9 @@ pub(super) struct Snapshot {
     /// 快照开始时刻（kopia 的 RFC3339，纳秒精度）。
     ///
     /// 身份快照的描述是固定的一句话，所以"最新的那条"只能靠时间认（见
-    /// [`identity_snapshots`]）。定长零填充的 RFC3339 字符串可以直接比大小。
+    /// [`identity_snapshots`]）。⚠ **别直接比这个字符串**：Go 的 RFC3339Nano 会省略
+    /// 尾随零（`…:55Z` / `…:55.5Z` / `…:55.669837882Z` 都合法），字面比较会把同一秒里的
+    /// 两条排反 —— 比较请走 [`newer_or_equal`]（SC-07）。
     #[serde(default, rename = "startTime")]
     pub start_time: String,
     /// 这条快照占了多大（kopia 自己算的）。界面上的"这一版多大"就是它。
@@ -106,6 +108,28 @@ pub(super) fn parse_cloud_games(text: &str) -> Result<Vec<CloudGame>, String> {
     Ok(games.into_values().collect())
 }
 
+/// 两条快照里，`known` 是不是**不比** `candidate` 旧。
+///
+/// ⚠ **不能直接比字符串**（SC-07）：kopia 用 Go 的 RFC3339Nano，**尾随零会被省略** ——
+/// `…:55Z`、`…:55.5Z`、`…:55.669837882Z` 都是合法输出。字面比较时 `Z`(0x5A) 比 `.`(0x2E)
+/// 大，于是 `"…:55Z"` 被判成晚于 `"…:55.5Z"`，同一秒里的两条会选出**旧**的那条
+/// （恢复出旧身份快照、索引取到上一份）。解析成时刻再比。
+///
+/// 解析不出来（kopia 换了格式）才退回字面比较 —— 至少不会把顺序彻底打乱，也不会 panic。
+pub(super) fn newer_or_equal(known: &Snapshot, candidate: &Snapshot) -> bool {
+    match (started_at(known), started_at(candidate)) {
+        (Some(known), Some(candidate)) => known >= candidate,
+        _ => known.start_time >= candidate.start_time,
+    }
+}
+
+/// 快照的开始时刻；读不懂就是 `None`（绝不用一个猜出来的值参与比较）。
+fn started_at(snapshot: &Snapshot) -> Option<chrono::DateTime<chrono::Utc>> {
+    chrono::DateTime::parse_from_rfc3339(snapshot.start_time.trim())
+        .ok()
+        .map(|at| at.with_timezone(&chrono::Utc))
+}
+
 /// 每个云端身份最新的那条**身份快照**：`(cloud_id, 快照 id)`。
 ///
 /// 同一个身份每次上传都会再拍一条（快照不可变，改不了旧的），所以这里按时间取最新
@@ -123,7 +147,7 @@ pub(super) fn identity_snapshots(text: &str) -> Result<Vec<(String, String)>, St
             continue;
         };
         match newest.get(cloud_id) {
-            Some(known) if known.start_time >= snapshot.start_time => {}
+            Some(known) if newer_or_equal(known, &snapshot) => {}
             _ => {
                 newest.insert(cloud_id.to_string(), snapshot);
             }
@@ -204,6 +228,48 @@ mod tests {
             ours.iter().map(|s| s.id.as_str()).collect::<Vec<_>>(),
             ["ddd", "aaa"],
             "按版本名排序，最旧在前"
+        );
+    }
+
+    /// `SC-07`：Go 的 RFC3339Nano **省略尾随零**，所以"同一秒里的两条"用字面比较会排反
+    /// （`Z` 比 `.` 大）。这里钉住"解析成时刻再比"。
+    #[test]
+    fn timestamps_of_different_precision_still_compare_correctly() {
+        let snapshot = |id: &str, start_time: &str| Snapshot {
+            id: id.to_string(),
+            description: "kotori-identity".to_string(),
+            tags: BTreeMap::new(),
+            start_time: start_time.to_string(),
+            stats: SnapshotStats::default(),
+        };
+
+        // 整秒那种（尾零被省略）**不该**被判成更新。字面比较会得出相反的结论。
+        let whole = snapshot("whole", "2026-09-16T12:00:00Z");
+        let precise = snapshot("precise", "2026-09-16T12:00:00.5Z");
+        assert!(
+            newer_or_equal(&precise, &whole),
+            "…:00.5 比 …:00 晚；反过来才该是旧"
+        );
+        assert!(!newer_or_equal(&whole, &precise), "整秒那条是旧的");
+
+        // 同一秒、纳秒只差最后一位（一个被截断成更短的形式）。
+        let longer = snapshot("longer", "2026-09-16T12:00:00.669837882Z");
+        let shorter = snapshot("shorter", "2026-09-16T12:00:00.66983788Z");
+        assert!(newer_or_equal(&longer, &shorter), "…882 比 …880 晚");
+
+        // 不同秒仍然是后一个更新。
+        let earlier = snapshot("earlier", "2026-09-16T12:00:00Z");
+        let later = snapshot("later", "2026-09-16T12:00:01Z");
+        assert!(newer_or_equal(&later, &earlier));
+        assert!(!newer_or_equal(&earlier, &later));
+
+        // 读不懂的时刻退回字面比较：不 panic，而且结果与直接的 `>=` 逐字一致
+        // （这里不猜方向 —— 只知道它按字面走，而不是凭空判成"旧"）。
+        let broken = snapshot("broken", "不是时间");
+        assert_eq!(
+            newer_or_equal(&later, &broken),
+            later.start_time >= broken.start_time,
+            "解析不出来时退回字面比较"
         );
     }
 

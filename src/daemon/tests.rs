@@ -71,6 +71,65 @@ async fn a_game_name_that_is_too_long_is_refused() {
     );
 }
 
+/// 一个**配置写在临时目录里**的 daemon。
+///
+/// `daemon()` 用默认配置路径，凡是会走到 `mutate_config` 的测试都不能用它 ——
+/// 那会去锁、去写 `~/.config/kotori/config.toml`（真机上就是用户的配置）。
+fn daemon_in_scratch(tag: &str) -> Daemon {
+    let dir = crate::config::test_scratch(tag);
+    Daemon::new(Config::default()).with_config_path(dir.join("config.toml"))
+}
+
+/// 名字会被原样抄进错误消息、日志与界面 —— 控制字符一律拒（BB-05）。
+#[tokio::test]
+async fn a_game_name_with_control_characters_is_refused() {
+    for name in [r"a\u0007b", r"a\u001bb", r"a\nb", r"a\tb"] {
+        let reply = daemon()
+            .handle_request(&format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"game.create","params":{{"name":"{name}","exe_path":"/bin/true"}}}}"#
+            ))
+            .await;
+        let value: Value = serde_json::from_str(&reply.body).unwrap();
+        assert!(
+            value["error"]["message"]
+                .as_str()
+                .unwrap_or_default()
+                .contains("控制字符"),
+            "{name}: {value}"
+        );
+    }
+}
+
+/// 改名那个入口不许绕过同一把关（两个入口两套标准正是审计反复指出的毛病）。
+#[tokio::test]
+async fn renaming_a_game_to_a_control_character_name_is_refused() {
+    let daemon = daemon_in_scratch("rename-control-char");
+    let created = daemon
+        .handle_request(
+            r#"{"jsonrpc":"2.0","id":1,"method":"game.create","params":{"name":"ok","exe_path":"/bin/true"}}"#,
+        )
+        .await;
+    let value: Value = serde_json::from_str(&created.body).unwrap();
+    let id = value["result"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("建档案该成功: {value}"))
+        .to_string();
+
+    let reply = daemon
+        .handle_request(&format!(
+            r#"{{"jsonrpc":"2.0","id":2,"method":"game.update","params":{{"id":"{id}","name":"a\u0007b"}}}}"#
+        ))
+        .await;
+    let value: Value = serde_json::from_str(&reply.body).unwrap();
+    assert!(
+        value["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("控制字符"),
+        "{value}"
+    );
+}
+
 /// 2^31 从前会被 `as i32` 回绕成负数:用户要"大幅调锐",实际收到"调软 20 步"。
 #[tokio::test]
 async fn a_sharpness_delta_that_does_not_fit_is_invalid_params() {
@@ -84,7 +143,6 @@ async fn a_sharpness_delta_that_does_not_fit_is_invalid_params() {
         assert_eq!(value["error"]["code"], -32602, "{delta}: {value}");
     }
 }
-
 #[tokio::test]
 async fn wrong_jsonrpc_version_is_rejected() {
     let reply = daemon()
@@ -102,6 +160,38 @@ async fn missing_params_are_invalid_params() {
     let value: Value = serde_json::from_str(&reply.body).unwrap();
     assert_eq!(value["error"]["code"], -32602);
     assert!(value["error"]["message"].as_str().unwrap().contains("id"));
+}
+
+/// wine prefix 会变成 `WINEPREFIX`,而环境变量里的相对路径是按**谁在什么时候启动
+/// wine** 的工作目录解析的 —— 写相对路径等于指到哪算哪（BB-03）。
+#[tokio::test]
+async fn a_relative_wine_prefix_is_refused() {
+    for prefix in ["../etc/evil", "prefix", "./wine", "/tmp/../etc/evil"] {
+        let reply = daemon_in_scratch("wine-prefix")
+            .handle_request(&format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"wine.set_prefix","params":{{"prefix":"{prefix}"}}}}"#
+            ))
+            .await;
+        let value: Value = serde_json::from_str(&reply.body).unwrap();
+        let message = value["error"]["message"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("完整路径") || message.contains("不能有 .."),
+            "{prefix} 该被拒绝并且说清原因: {value}"
+        );
+    }
+
+    // 清空（`null` / 空串）照旧是合法的:那是"由 kotori 自己探测"。
+    // ⚠ 这条路会真的写配置(`mutate_config`),所以必须用临时目录里那一份。
+    let daemon = daemon_in_scratch("wine-prefix-clear");
+    for params in ["null", "\"\""] {
+        let reply = daemon
+            .handle_request(&format!(
+                r#"{{"jsonrpc":"2.0","id":1,"method":"wine.set_prefix","params":{{"prefix":{params}}}}}"#
+            ))
+            .await;
+        let value: Value = serde_json::from_str(&reply.body).unwrap();
+        assert!(value["error"].is_null(), "清空该成功: {value}");
+    }
 }
 
 #[tokio::test]

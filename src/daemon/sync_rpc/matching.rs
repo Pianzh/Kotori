@@ -27,6 +27,11 @@ impl Daemon {
     /// 指纹**由 daemon 现算**：不让客户端递进来，因为它是自动绑定的唯一依据 —— 递进来
     /// 就等于"这就是同一款"随手可写（与 `exe_fingerprint` 不进 `GamePatch` 同一条规矩）。
     pub(in crate::daemon) async fn rpc_sync_match(&self, exe: &Path) -> Result<Value, String> {
+        // 空路径要说"你没给"，而不是让 `display()` 印出空串，再拼成一句
+        // "读不出这个文件的指纹（…）: "（BB-06：冒号后面什么都没有）。
+        if exe.as_os_str().is_empty() {
+            return Err("没有给可执行文件路径".to_string());
+        }
         let fingerprint = crate::sync::fingerprint::of_file(exe).ok_or_else(|| {
             format!(
                 "读不出这个文件的指纹（文件在不在、有没有权限？）: {}",

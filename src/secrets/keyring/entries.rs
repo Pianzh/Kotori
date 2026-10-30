@@ -135,9 +135,22 @@ impl Keyring {
             None,
         )?;
         if !output.status.success() {
-            return Err(SecretError::Command(
-                String::from_utf8_lossy(&output.stderr).trim().to_string(),
-            ));
+            // ⚠ `secret-tool clear` 在"这个条目本来就不存在"时也返回非零，而且**什么都不
+            // 写**。而那正是调用方想要的结果 —— 当成失败会让"换台干净机器先点一下清空"
+            // 报出一行没有原因的错（BB-06：冒号后面是空的）。
+            if matches!(self.get(key), Ok(None)) {
+                return Ok(());
+            }
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            // 真失败时也绝不留空:一句话总比"失败: "有用。
+            return Err(SecretError::Command(if stderr.is_empty() {
+                format!(
+                    "secret-tool clear 失败了，而且它什么原因都没说（{}）",
+                    key.account()
+                )
+            } else {
+                stderr
+            }));
         }
         Ok(())
     }

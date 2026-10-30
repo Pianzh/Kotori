@@ -111,6 +111,78 @@ fn a_later_write_does_not_erase_the_other_machines_record() {
     assert_eq!(ids, vec!["a", "b"], "两台机器都该在:{ids:?}");
 }
 
+/// 深扫重建索引只列**版本名**，条目里没有内容值，而它的 `updated` 是"现在" ⇒
+/// 整条胜出会把已有的 `latest_digest` 抹成 `None`。最新那一版没换人时，别人不知道
+/// 它的内容值**不等于它变了**（§6.1(d)：内容值描述的就是最新那一版）。
+#[test]
+fn rebuild_that_only_lists_versions_does_not_erase_the_content_value() {
+    const DIGEST: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    let mut union = CloudIndex::new();
+    let mut uploaded = game("c1", "one", "一", machine("a", &["f1"], &[]));
+    uploaded.latest = Some("20260923T100000Z".to_string());
+    uploaded.set_digest(Some(DIGEST.to_string()));
+    uploaded.updated = "2026-09-23T10:00:00Z".to_string();
+    union.merge(uploaded);
+
+    // 深扫那条路的条目：同一个最新版本、没有内容值、时间戳更晚。
+    let mut rebuilt = game("c1", "one", "一", machine("a", &["f1"], &[]));
+    rebuilt.latest = Some("20260923T100000Z".to_string());
+    rebuilt.versions = 1;
+    rebuilt.updated = "2026-09-24T10:00:00Z".to_string();
+    assert_eq!(
+        rebuilt.latest_digest, None,
+        "深扫造出来的条目本来就不知道内容值"
+    );
+    union.merge(rebuilt);
+
+    assert_eq!(
+        union.games[0].latest_digest.as_deref(),
+        Some(DIGEST),
+        "最新那一版没换人 ⇒ 内容值还是那个，不许抹掉"
+    );
+}
+
+/// 反过来：最新那一版真的换人了，旧的内容值就不再描述它 —— 必须清掉。
+#[test]
+fn a_newer_version_drops_the_content_value_of_the_old_one() {
+    let mut union = CloudIndex::new();
+    let mut uploaded = game("c1", "one", "一", machine("a", &["f1"], &[]));
+    uploaded.latest = Some("20260923T100000Z".to_string());
+    uploaded.set_digest(Some("a".repeat(64)));
+    uploaded.updated = "2026-09-23T10:00:00Z".to_string();
+    union.merge(uploaded);
+
+    let mut advanced = game("c1", "one", "一", machine("b", &["f2"], &[]));
+    advanced.latest = Some("20260923T110000Z".to_string());
+    advanced.updated = "2026-09-23T11:00:00Z".to_string();
+    union.merge(advanced);
+
+    assert_eq!(
+        union.games[0].latest_digest, None,
+        "最新那一版换人了，旧的内容值不再描述它"
+    );
+}
+
+/// 对面**知道**内容值（刚传完那一版）时，用对面的 —— 继承只在"没人告诉我们"时才发生。
+#[test]
+fn an_incoming_content_value_beats_the_one_we_kept() {
+    let mut union = CloudIndex::new();
+    let mut known = game("c1", "one", "一", machine("a", &["f1"], &[]));
+    known.latest = Some("20260923T100000Z".to_string());
+    known.set_digest(Some("a".repeat(64)));
+    known.updated = "2026-09-23T10:00:00Z".to_string();
+    union.merge(known);
+
+    let mut fresh = game("c1", "one", "一", machine("b", &["f2"], &[]));
+    fresh.latest = Some("20260923T100000Z".to_string());
+    fresh.set_digest(Some("b".repeat(64)));
+    fresh.updated = "2026-09-23T11:00:00Z".to_string();
+    union.merge(fresh);
+
+    assert_eq!(union.games[0].latest_digest, Some("b".repeat(64)));
+}
+
 #[test]
 fn a_fingerprint_finds_its_entry_and_says_how_many_it_found() {
     let mut index = CloudIndex::new();

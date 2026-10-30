@@ -102,5 +102,5 @@ pub use save_targets::{SaveTarget, targets};
 // 而"过期"是拿缓存自己的 `cached_at` 与本机时钟比出来的 —— 解析那一个时间戳只有
 // `snapshots` 一个地方会做（见 `describe_stamp` 旁边那段"解析必须与机器无关"）。
 pub use snapshots::{describe_stamp, is_snapshot, prune_plan, stamp_time, version_stamp};
-pub use validate::{validate, validate_endpoint, validate_secrets};
+pub use validate::{needs_b2_credentials, validate, validate_endpoint, validate_secrets};
 pub use versions::VersionInfo;

@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 
-use super::kopia_parse::Snapshot;
+use super::kopia_parse::{Snapshot, newer_or_equal};
 use crate::sync::cloud::KIND_INDEX;
 
 /// 索引快照的 description：**一句固定的话**，绝不能长得像版本名（否则会被
@@ -44,7 +44,7 @@ pub(super) fn index_snapshots(text: &str) -> Result<Vec<(String, String)>, Strin
             continue;
         };
         match newest.get(slot) {
-            Some(known) if known.start_time >= snapshot.start_time => {}
+            Some(known) if newer_or_equal(known, &snapshot) => {}
             _ => {
                 newest.insert(slot.to_string(), snapshot);
             }

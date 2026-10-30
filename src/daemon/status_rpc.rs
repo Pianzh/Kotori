@@ -181,6 +181,24 @@ impl Daemon {
             Value::String(text) if text.trim().is_empty() => None,
             Value::String(text) => {
                 let path = PathBuf::from(text.trim());
+                // ⚠ 必须是**完整路径**（BB-03）：这一栏会变成 `WINEPREFIX`，而环境变量的
+                // 相对路径是按**启动进程的工作目录**解析的 —— 那个目录是游戏根目录、或是
+                // daemon 的 cwd，两者都可能变。写相对路径的人以为自己指了"旁边那个
+                // prefix"，实际指到哪取决于谁在什么时候拉起 wine。
+                if !path.is_absolute() {
+                    return Err(format!(
+                        "prefix 要写完整路径（从 / 或盘符开始）: {} —— 相对路径会随工作目录变",
+                        path.display()
+                    ));
+                }
+                // `..` 同理：即使拼出来是绝对的，也可能从句子里穿出去。同族的
+                // `sync.set_settings` 早就拒了（"prefix 里不能有 .."），这里补上。
+                if path
+                    .components()
+                    .any(|c| matches!(c, std::path::Component::ParentDir))
+                {
+                    return Err(format!("prefix 里不能有 ..: {}", path.display()));
+                }
                 // Accept a prefix that exists (must look like one) or a path
                 // that does not exist yet (wine will populate it), but reject a
                 // directory that clearly is not a prefix.

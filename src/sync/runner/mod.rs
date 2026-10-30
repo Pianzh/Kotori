@@ -131,7 +131,7 @@ impl Runner {
     /// Structural check plus "are the credentials actually there".
     pub fn ready(&self) -> Result<(), SyncError> {
         validate(&self.settings)?;
-        validate_secrets(&self.keyring)
+        validate_secrets(&self.keyring, super::needs_b2_credentials(&self.settings))
     }
 
     /// The temporary work area this runner hands to the engine.

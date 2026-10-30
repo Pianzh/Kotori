@@ -202,6 +202,16 @@ impl CloudIndex {
                 for machine in &known.identity.machines {
                     incoming.identity.merge_machine(machine.clone());
                 }
+                // ⚠ 内容值不是独立的一栏，它是"**最新那一版**的内容"：最新那一版没换人时，
+                // 别人**不知道**它的内容值，不等于它变了。
+                //
+                // 深扫重建索引（`rebuild_index`）走的正是这条路 —— 它只列版本名，条目由
+                // `from_identity` 造出来（`latest_digest: None`），而它的 `updated` 是"现在"。
+                // 不在这里继承，**一次深扫就能把全库的内容值抹成"不知道"**，下一轮启动前
+                // 的判定于是退化成 Ask（或者整读一遍存档重算）—— 而用户只是点了一下深扫。
+                if incoming.latest_digest.is_none() && incoming.latest == known.latest {
+                    incoming.latest_digest = known.latest_digest.clone();
+                }
                 *known = incoming;
             }
             None => self.games.push(game),

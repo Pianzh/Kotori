@@ -153,7 +153,10 @@ impl Runner {
             return PullResult::Refused(GameOutcome::failed(
                 game_id,
                 name,
-                format!("写入本机存档失败: {error}"),
+                format!(
+                    "写入本机存档失败: {error}（这之前已经铺下去的文件不会撤回 —— \
+                     下一次同步会按「谁新谁旧」重新对齐，不会再把它们盖回去）"
+                ),
             ));
         }
 

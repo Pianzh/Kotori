@@ -23,6 +23,14 @@ impl Daemon {
         if name.chars().count() > MAX_GAME_NAME_CHARS {
             return Err(format!("名称太长（最多 {MAX_GAME_NAME_CHARS} 个字符）"));
         }
+        // ⚠ 控制字符一律拒（BB-05）：名字会被原样抄进**每一条**与它相关的错误消息
+        // （`可执行文件已经属于「…」`）、日志行与界面。一个 `\x07` 在终端里响铃、
+        // 一个 `\x1b` 能吞掉后面半行、一个换行能把一条日志拆成两条 —— 这些都不是
+        // 用户想要的"名字"，而是让排障材料失真的东西。制表符与换行也算：路径里能
+        // 放它们，名字里没有任何理由要。
+        if let Some(bad) = name.chars().find(|c| c.is_control()) {
+            return Err(format!("名称里不能有控制字符（U+{:04X}）", u32::from(bad)));
+        }
         for mount in [&new_game.game_dir_mount, &new_game.exe_mount]
             .into_iter()
             .flatten()
@@ -199,6 +207,15 @@ impl Daemon {
             if let Some(name) = &patch.name {
                 if name.trim().is_empty() {
                     return Err("名称不能为空".to_string());
+                }
+                // 与 `game.create` 同一把尺子（BB-05）：改名的入口不许绕过控制字符
+                // 与长度那一关 —— 名字会变成 id、进云端路径，两个入口两套标准正是
+                // 审计反复指出的毛病。
+                if name.chars().count() > MAX_GAME_NAME_CHARS {
+                    return Err(format!("名称太长（最多 {MAX_GAME_NAME_CHARS} 个字符）"));
+                }
+                if let Some(bad) = name.chars().find(|c| c.is_control()) {
+                    return Err(format!("名称里不能有控制字符（U+{:04X}）", u32::from(bad)));
                 }
                 game.name = name.clone();
             }

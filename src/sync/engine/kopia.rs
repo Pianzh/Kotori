@@ -465,7 +465,10 @@ impl Kopia {
 }
 
 /// `KOTORI_KOPIA_REPOSITORY`：本地目录仓库的注入点。
-fn local_repository_from_env() -> Option<PathBuf> {
+///
+/// 它同时也是"这一次要不要 B2 凭据"的判据 —— 仓库落在本机目录上时，一个 B2
+/// 密码都用不上（SC-08）。
+pub(crate) fn local_repository_from_env() -> Option<PathBuf> {
     std::env::var_os("KOTORI_KOPIA_REPOSITORY")
         .map(PathBuf::from)
         .filter(|path| !path.as_os_str().is_empty())

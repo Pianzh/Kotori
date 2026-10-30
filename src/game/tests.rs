@@ -87,9 +87,31 @@ fn game_ids_are_stable_and_filesystem_safe() {
     assert_eq!(generate_game_id("My Game v0.99"), "my-game-v0-99");
     assert_eq!(generate_game_id("测试游戏(正式版)"), "测试游戏-正式版");
     assert_eq!(generate_game_id("My-Game"), "my-game");
-    assert_eq!(generate_game_id("  "), "");
     // Same directory name must always produce the same id.
     assert_eq!(generate_game_id("SomeGame"), generate_game_id("SomeGame"));
+}
+
+/// 一个可用字符都没有的名字会得一个**稳定的代词**，不是空串（BB-04 / SC-15）。
+///
+/// 空 id 的后果不是"少一条档案"：`add_games` 会把它插进配置，UI 库列表用
+/// `!id.is_empty()` 过滤 ⇒ 用户在界面里永远看不见它、也删不掉它，而 daemon 始终
+/// 把它当一款游戏对待（自动追踪认它、云同步认它）。撞上已有的空 id 之后
+/// `generate_unique_game_id` 还会产出 `-2` —— 那个名字既不是用户起的，也读不懂。
+#[test]
+fn a_name_without_usable_characters_still_gets_a_readable_id() {
+    for name in ["----", ",，", "  ", "《》", "·"] {
+        let id = generate_game_id(name);
+        assert_eq!(id, "game", "{name:?} 该回落到代词，而不是空串或 `-2`");
+        assert!(id.is_ascii(), "{id} 要能原样进云端路径");
+    }
+    // 撞名照旧走 `-2`，代词不会让第二条被吞掉。
+    let mut config = crate::config::Config::default();
+    let first = generate_unique_game_id(&config, "----");
+    config
+        .games
+        .insert(first.clone(), game_config_named("----"));
+    assert_eq!(first, "game");
+    assert_eq!(generate_unique_game_id(&config, ",，"), "game-2");
 }
 
 #[test]

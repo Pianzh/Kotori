@@ -148,8 +148,13 @@ pub fn remove_game(config: &mut crate::config::Config, id: &str) -> bool {
     config.games.remove(id).is_some()
 }
 /// Generate a stable id from a directory name.
+///
+/// ⚠ 一个可用字符都没有的名字（`----`、`,，`、纯空白）会得一个稳定的代词 `game`，
+/// **不是空串**：空 id 会在库里造出一条"界面永远看不见（`!id.is_empty()` 那道门槛）、
+/// daemon 却当它是游戏"的幽灵档案，而且 `generate_unique_game_id` 撞上它之后会产出
+/// `-2` 这种读不懂的 id（BB-04 / SC-15）。撞名照旧由 `-2` 后缀处理。
 pub fn generate_game_id(dir_name: &str) -> String {
-    dir_name
+    let id = dir_name
         .chars()
         .map(|c| {
             if c.is_alphanumeric() || c == '-' || c == '_' {
@@ -162,7 +167,11 @@ pub fn generate_game_id(dir_name: &str) -> String {
         .split('-')
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
-        .join("-")
+        .join("-");
+    if id.is_empty() {
+        return "game".to_string();
+    }
+    id
 }
 
 /// [`generate_game_id`], but collisions get a numeric suffix (`name-2`, …)

@@ -47,6 +47,8 @@ pub use kopia_args::repo_prefix;
 // 换 B2 凭据之后要作废 kopia 的连接记录（BUG-21）：daemon 那边保存凭据时调它，
 // 而 kopia 模块本身是私有的。
 pub(crate) use kopia::forget_connection;
+// "这一次要不要 B2 凭据"的判据之一（SC-08）：仓库钉在本机目录上时一个密码都用不上。
+pub(crate) use kopia::local_repository_from_env as filesystem_repository;
 
 /// 真正干活的引擎。这个枚举就是"两个引擎"这件事本身。
 enum Inner {

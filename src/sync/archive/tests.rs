@@ -258,6 +258,16 @@ fn a_package_that_tries_to_escape_its_directory_is_refused() {
     assert!(!safe_rel("a\\b"));
     assert!(!safe_rel("a//b"));
 
+    // Windows 盘符（SC-04）：每一段都"干净"，但 `PathBuf::push` 遇到前缀会**替换**
+    // 基路径 —— `存档目录.join("C:/Windows/x")` 就是 `C:/Windows/x`。Linux 上跑不出来。
+    assert!(!safe_rel("C:/Windows/System32/x.dll"));
+    assert!(!safe_rel("c:x"));
+    assert!(!safe_rel("D:/"));
+    // 只认开头那一个字母 + 冒号：正常文件名里的冒号不受影响（Linux 上合法，
+    // 而 Windows 上它本来就建不出这种文件）。
+    assert!(safe_rel("saves/save:01.dat"));
+    assert!(safe_rel("a/b:c"));
+
     // 存档位置的 key 只许是单段的 `[a-z0-9_-]`(那正是 `save_key` 的产出)。不校验也不会
     // 出事(key 匹配不上任何本机位置),但那份安全是跨模块的隐式约定,得有测试守着。
     assert!(safe_key("rel-savedata"));

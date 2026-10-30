@@ -35,7 +35,7 @@ pub(super) fn readiness_problem(
 ) -> Option<String> {
     sync::validate(settings)
         .err()
-        .or_else(|| sync::validate_secrets(keyring).err())
+        .or_else(|| sync::validate_secrets(keyring, sync::needs_b2_credentials(settings)).err())
         .map(|error| error.to_string())
         .or_else(|| {
             let (configured, name) = match settings.engine {

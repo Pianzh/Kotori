@@ -53,6 +53,13 @@ impl Staging {
             let Some(target) = targets.iter().find(|target| target.key == entry.key) else {
                 continue;
             };
+            // 纵深防御（SC-04）：`unpack` 已经用 `safe_rel` 挡过一遍，但这里是"真的往
+            // 用户盘上写"的最后一站。将来任何一条绕过 `plan`、直接拿清单条目落的路径
+            // 都不该让这一步变成任意文件写 —— 尤其是 Windows 上盘符会替换基路径。
+            if !archive::safe_rel(&entry.path) {
+                tracing::warn!("包里有一条不安全的路径，跳过: {}", entry.path);
+                continue;
+            }
             let source = root.join(entry.name());
             let destination = target
                 .local

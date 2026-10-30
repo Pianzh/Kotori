@@ -60,6 +60,13 @@ pub struct App {
     /// 正在路上的那一笔。**同一时刻只允许一笔**:两次全量写并发时,后到的旧快照会把
     /// 新的盖掉(daemon 是并发的),所以第二笔一律等第一笔回来再发。
     pub(super) save_in_flight: Option<SaveAttempt>,
+    /// 上一笔还没回来时被挡下的那一笔 —— **它手里那份草稿**。
+    ///
+    /// ⚠ 它必须是"被挡下时的那份草稿"，不是"轮到它时的当前草稿"（SC-02）：用户改完
+    /// 立刻切到另一款，`self.draft` 已经换成别人的了，拿当前草稿去补发只会把别人的
+    /// 值写到这一款头上，而被挡下的那笔编辑就此蒸发。之后每一笔新草稿包含前面的
+    /// 全部编辑，所以后到的覆盖排队中的那份是安全的。
+    pub(super) pending_save: Option<SaveAttempt>,
     /// Library search query (matches name or exe path).
     pub(super) search: String,
     pub(super) confirm_delete: bool,
@@ -189,6 +196,7 @@ impl App {
                 saved_ok: true,
                 autosave_generation: 0,
                 save_in_flight: None,
+                pending_save: None,
                 search: String::new(),
                 confirm_delete: false,
                 new_name: String::new(),
@@ -316,8 +324,8 @@ impl App {
     /// 真的发一次保存。除了防抖到点,「重置」也直接调它(那是明确的一次操作,不用等)。
     ///
     /// **同一时刻只允许一笔**:daemon 并发处理请求,两次全量写若重叠,后到的旧快照会
-    /// 把新的盖掉。所以这里见到在路上的就退回 —— 不用担心丢掉这一次,在路上的那笔回来
-    /// 时世代必然已经变了(见 `Message::ProfileSaved`),它会自己再存一遍。
+    /// 把新的盖掉。所以这里见到在路上的就把这一笔**排队**（不是丢掉，SC-02：在路上的
+    /// 那笔只带走了它出发时的草稿，用户之后改的那几笔在它里面没有）。
     ///
     /// 按按钮那一组走同一条通道(`SaveGroup`);按钮在 `saving` 时是禁用的,所以
     /// "点了没反应"这件事不会发生。
@@ -329,16 +337,21 @@ impl App {
         let Some(draft) = self.draft.clone() else {
             return Task::none();
         };
+        let attempt = SaveAttempt { draft, scope };
         if self.save_in_flight.is_some() {
-            tracing::debug!("上一笔保存还没回来，这一次等它");
+            tracing::debug!("上一笔保存还没回来，这一笔排队等它");
+            self.pending_save = Some(attempt);
             return Task::none();
         }
+        self.dispatch_save(attempt)
+    }
+
+    /// 把一笔已经定好的保存真的发出去（`begin_save` 与"排队那笔出队"共用）。
+    pub(super) fn dispatch_save(&mut self, attempt: SaveAttempt) -> Task<Message> {
         self.saving = true;
         let generation = self.autosave_generation;
-        self.save_in_flight = Some(SaveAttempt {
-            draft: draft.clone(),
-            scope,
-        });
+        let SaveAttempt { draft, scope } = attempt.clone();
+        self.save_in_flight = Some(attempt);
         Task::perform(
             async move { save_profile(draft, scope).await },
             move |result| Message::ProfileSaved(generation, result),

@@ -155,6 +155,13 @@ impl App {
             }
         }
 
+        // 先看有没有**排队**的那一笔（SC-02）：它是用户真正想做的那一次，手里带着
+        // 被挡下时的那份草稿（可能属于刚切走的那一款）。它比"拿当前草稿再存一遍"
+        // 精确得多 —— 后者在换款之后拿到的是**别人的**草稿。
+        if let Some(pending) = self.pending_save.take() {
+            return Task::batch([error_task, self.dispatch_save(pending)]);
+        }
+
         // 这一笔已经过期(按过「重置」、又改过,或者用户已经翻到别的游戏去了):
         // 配置里现在写着的可能是一个用户不要的值,用手上的草稿再存一次把它拉
         // 回来。⚠ **不能只看 `same_game`**:切到另一款之后,新款那笔编辑会因为
@@ -184,6 +191,8 @@ impl App {
         // 作废还挂在防抖窗口里的那一笔,然后把页面重新按「已存值」铺一遍
         // (真正把副本抄回去的是 wire 里的 `reseed_detail`)。
         self.cancel_auto_save();
+        // 排队中的那笔也作废：用户刚说了"还原成已保存的设置"，没有人还想要它。
+        self.pending_save = None;
         let Some(game) = self.selected_game().cloned() else {
             return Task::none();
         };
